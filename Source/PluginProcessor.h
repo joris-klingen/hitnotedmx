@@ -2,8 +2,10 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include "Composition.h"
 #include "EnttecProDmx.h"
 #include "MidiLog.h"
+#include "MidiState.h"
 
 namespace hitnotedmx
 {
@@ -67,7 +69,11 @@ private:
 
     juce::AudioProcessorValueTreeState parameters;
     EnttecProDmx dmx;
-    MidiLog midiLog;
+    MidiLog    midiLog;
+    MidiState  midiState;
+    DmxValues  dmxValues;
+
+    double sampleRate_ { 48000.0 };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (HitNoteDmxAudioProcessor)
 };
