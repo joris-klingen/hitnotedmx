@@ -120,7 +120,9 @@ void HitNoteDmxAudioProcessorEditor::buttonClicked (juce::Button* b)
 void HitNoteDmxAudioProcessorEditor::timerCallback()
 {
     // Drain whatever the audio thread left for us. Cap iterations so a
-    // burst of MIDI doesn't lock the timer thread.
+    // burst of MIDI doesn't lock the timer thread. appendLog() only
+    // mutates the in-memory backing buffer; the TextEditor is touched
+    // once at the end of the tick by flushLogIfDirty().
     auto& log = proc.getMidiLog();
     int drained = 0;
     while (drained < 64)
@@ -139,6 +141,7 @@ void HitNoteDmxAudioProcessorEditor::timerCallback()
                                             entry->velocity));
         ++drained;
     }
+    flushLogIfDirty();
 
     // Refresh the live DMX preview only when something actually changed.
     dmxView.repaintIfChanged();
@@ -152,23 +155,37 @@ void HitNoteDmxAudioProcessorEditor::refreshDeviceStatus()
 
 void HitNoteDmxAudioProcessorEditor::appendLog (const juce::String& line)
 {
-    // Keep the log bounded — cap at ~200 lines so the buffer doesn't grow forever.
-    constexpr int kMaxLines = 200;
-    auto current = midiLogView.getText();
-    auto combined = current + line + "\n";
-    int newlineCount = 0;
-    for (auto ch : combined)
-        if (ch == '\n')
-            ++newlineCount;
-    while (newlineCount > kMaxLines)
+    // O(1) backing-store append. The TextEditor is NOT touched here —
+    // doing setText() per MIDI event used to retrigger a full
+    // TextEditor relayout, which scaled with text length and made the
+    // GUI visibly glitchy after a few loop iterations once chases were
+    // firing notes.
+    logBuffer += line;
+    logBuffer += '\n';
+    logDirty = true;
+}
+
+void HitNoteDmxAudioProcessorEditor::flushLogIfDirty()
+{
+    if (! logDirty)
+        return;
+
+    // Bound the buffer so the editor's relayout cost stays roughly
+    // constant. Trim only when we've grown past the cap; drop entire
+    // leading lines, not arbitrary character ranges.
+    constexpr int kSoftCap = 8000;   // ~200 lines × ~40 chars
+    constexpr int kHardCap = 12000;  // grow window before another trim
+    if (logBuffer.length() > kHardCap)
     {
-        const int nl = combined.indexOfChar ('\n');
-        if (nl < 0) break;
-        combined = combined.substring (nl + 1);
-        --newlineCount;
+        const int chop = logBuffer.length() - kSoftCap;
+        const int nl   = logBuffer.indexOfChar (chop, '\n');
+        if (nl > 0)
+            logBuffer = logBuffer.substring (nl + 1);
     }
-    midiLogView.setText (combined, false);
+
+    midiLogView.setText (logBuffer, false);
     midiLogView.moveCaretToEnd();
+    logDirty = false;
 }
 
 }  // namespace hitnotedmx

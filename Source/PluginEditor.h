@@ -35,7 +35,8 @@ private:
     void timerCallback() override;
 
     void refreshDeviceStatus();
-    void appendLog (const juce::String& line);
+    void appendLog (const juce::String& line);  // queue; doesn't touch the editor
+    void flushLogIfDirty();                     // one setText per tick
 
     HitNoteDmxAudioProcessor& proc;
 
@@ -45,6 +46,12 @@ private:
     juce::Label      deviceStatusLabel;
     juce::TextEditor midiLogView;
     DmxVisualizer    dmxView;
+
+    // Backing store for the log text. setText() on the editor is the
+    // expensive operation (full relayout); we batch into this buffer
+    // and flush at most once per timer tick.
+    juce::String logBuffer;
+    bool         logDirty { false };
 
     bool connectAttempt = false;
 
