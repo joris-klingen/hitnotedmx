@@ -26,7 +26,6 @@ namespace
     constexpr unsigned char MSG_START_CODE = 0x7E;
     constexpr unsigned char MSG_END_CODE   = 0xE7;
     constexpr int HEADER_LENGTH = 4;
-    constexpr int MAX_PACKET_SIZE = 512;
 
     // The widget runs on an FTDI bridge; the host-side baud is effectively
     // ignored by the device, but a sane value must still be configured.
@@ -159,8 +158,10 @@ bool EnttecProDmx::openPort (const std::string& devicePath)
                                     | INLCR | IGNCR | ICRNL);
     options.c_oflag &= ~(tcflag_t) (OPOST | ONLCR);
 
-    // Block up to 0.1s per read() returning whatever bytes have arrived.
-    options.c_cc[VTIME] = 1;
+    // Block up to 1s per read() returning whatever bytes have arrived. Only
+    // the connect handshake reads; the DMX send loop never reads, so a patient
+    // timeout here just makes the widget-parameter query more reliable.
+    options.c_cc[VTIME] = 10;
     options.c_cc[VMIN]  = 0;
 
     if (tcsetattr (fd, TCSANOW, &options) != 0)
@@ -206,37 +207,33 @@ bool EnttecProDmx::connect()
     if (! openPort (selectedDevicePath))
         return false;
 
-    tcflush (serialFd, TCIOFLUSH);
+    // Query the widget parameters (firmware / refresh rate) for the status
+    // panel. This is BEST-EFFORT: the widget does not need to answer for us to
+    // drive DMX (the Send-DMX message is one-way), and some units are slow or
+    // quiet on the first query right after the port opens. So we try a few
+    // times but never fail the connection just because the reply didn't land.
+    firmwareMajor = firmwareMinor = refreshRate = 0;
+    bool gotParams = false;
 
-    int size = 0;
-    if (sendPacket (GET_WIDGET_PARAMS, reinterpret_cast<unsigned char*> (&size), 2) <= 0)
+    for (int attempt = 0; attempt < 3 && ! gotParams; ++attempt)
     {
+        tcflush (serialFd, TCIFLUSH);   // drop any stale RX, keep our TX
+
+        int size = 0;
         if (sendPacket (GET_WIDGET_PARAMS, reinterpret_cast<unsigned char*> (&size), 2) <= 0)
-        {
-            closePort();
-            lastError = "ENTTEC widget did not respond to GET_WIDGET_PARAMS.";
-            return false;
-        }
-    }
+            continue;
 
-    DmxUsbProParams params {};
-    if (receivePacket (GET_WIDGET_PARAMS_REPLY,
-                       reinterpret_cast<unsigned char*> (&params),
-                       sizeof (params)) <= 0)
-    {
+        DmxUsbProParams params {};
         if (receivePacket (GET_WIDGET_PARAMS_REPLY,
                            reinterpret_cast<unsigned char*> (&params),
-                           sizeof (params)) <= 0)
+                           sizeof (params)) > 0)
         {
-            closePort();
-            lastError = "ENTTEC widget did not return parameter reply.";
-            return false;
+            firmwareMajor = params.FirmwareMSB;
+            firmwareMinor = params.FirmwareLSB;
+            refreshRate   = params.RefreshRate;
+            gotParams = true;
         }
     }
-
-    firmwareMajor = params.FirmwareMSB;
-    firmwareMinor = params.FirmwareLSB;
-    refreshRate   = params.RefreshRate;
 
     connected.store (true);
     lastError = {};
@@ -272,6 +269,9 @@ juce::String EnttecProDmx::getStatusText() const
 {
     if (connected.load())
     {
+        if (firmwareMajor == 0 && firmwareMinor == 0 && refreshRate == 0)
+            return "Connected (widget parameters unavailable).";
+
         return "Connected. Firmware "
              + juce::String (firmwareMajor) + "." + juce::String (firmwareMinor)
              + "\nRefresh rate: " + juce::String (refreshRate);
@@ -375,7 +375,7 @@ int EnttecProDmx::receivePacket (int label, unsigned char* data, unsigned int ex
         return 0;
 
     unsigned char byte = 0;
-    unsigned char buffer[600];
+    unsigned char buffer[700];   // a params reply may carry up to 5 + 508 config bytes
 
     while (byte != (unsigned char) label)
     {
@@ -396,7 +396,7 @@ int EnttecProDmx::receivePacket (int label, unsigned char* data, unsigned int ex
         return 0;
     length += ((unsigned int) byte) << 8;
 
-    if (length > (unsigned int) MAX_PACKET_SIZE)
+    if (length > sizeof (buffer))
         return 0;
 
     for (unsigned int i = 0; i < length; ++i)
