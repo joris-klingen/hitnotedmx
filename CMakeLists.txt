@@ -34,7 +34,7 @@ juce_add_plugin(HitNoteDmx
     IS_SYNTH                    FALSE
     NEEDS_MIDI_INPUT            TRUE
     NEEDS_MIDI_OUTPUT           FALSE
-    IS_MIDI_EFFECT              TRUE
+    IS_MIDI_EFFECT              FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
     COPY_PLUGIN_AFTER_BUILD     TRUE
     VST3_CATEGORIES             "Fx" "Tools"

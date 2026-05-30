@@ -25,7 +25,9 @@ HitNoteDmxAudioProcessor::createParameterLayout()
 }
 
 HitNoteDmxAudioProcessor::HitNoteDmxAudioProcessor()
-    : AudioProcessor (BusesProperties()),  // MIDI-effect: no audio buses
+    : AudioProcessor (BusesProperties()
+                          .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
+                          .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       parameters (*this, nullptr, "DmxUniverse", createParameterLayout())
 {
     for (int i = 1; i <= kDmxUniverseSize; ++i)
@@ -45,11 +47,14 @@ void HitNoteDmxAudioProcessor::releaseResources() {}
 
 bool HitNoteDmxAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
-    // MIDI-effect plugin: we don't need any audio I/O. Live still hands
-    // us a (possibly empty) audio buffer alongside the MidiBuffer in
-    // processBlock; accept any layout the host wants.
-    juce::ignoreUnused (layouts);
-    return true;
+    // Same rule as HitDmx: mono or stereo on the main bus, input matches
+    // output. We don't process the audio at all but we accept these
+    // layouts so the host can place the plugin on an audio-style chain
+    // (which is how DMXIS-style "drives DMX from MIDI" plugins live).
+    const auto& mainOut = layouts.getMainOutputChannelSet();
+    if (mainOut != juce::AudioChannelSet::mono() && mainOut != juce::AudioChannelSet::stereo())
+        return false;
+    return mainOut == layouts.getMainInputChannelSet();
 }
 
 void HitNoteDmxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,

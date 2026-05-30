@@ -38,7 +38,7 @@ public:
     const juce::String getName() const override                       { return JucePlugin_Name; }
     bool acceptsMidi()  const override                                { return true; }
     bool producesMidi() const override                                { return false; }
-    bool isMidiEffect() const override                                { return true; }
+    bool isMidiEffect() const override                                { return false; }
     double getTailLengthSeconds() const override                      { return 0.0; }
 
     int getNumPrograms() override                                     { return 1; }
