@@ -48,6 +48,7 @@ target_sources(HitNoteDmx PRIVATE
     Source/MidiState.cpp
     Source/Recipes.cpp
     Source/Composition.cpp
+    Source/DmxVisualizer.cpp
 )
 
 target_include_directories(HitNoteDmx PRIVATE

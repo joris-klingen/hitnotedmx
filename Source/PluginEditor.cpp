@@ -15,9 +15,9 @@ juce::String midiNoteName (juce::uint8 pitch)
 }
 
 HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioProcessor& p)
-    : AudioProcessorEditor (&p), proc (p)
+    : AudioProcessorEditor (&p), proc (p), dmxView (p.getDmxValues())
 {
-    setSize (520, 360);
+    setSize (720, 440);
 
     addAndMakeVisible (connectUsbButton);
     addAndMakeVisible (disconnectButton);
@@ -31,6 +31,8 @@ HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioP
     deviceStatusLabel.setColour (juce::Label::textColourId, juce::Colours::white);
     addAndMakeVisible (deviceStatusLabel);
 
+    addAndMakeVisible (dmxView);
+
     midiLogView.setMultiLine (true, false);
     midiLogView.setReadOnly (true);
     midiLogView.setCaretVisible (false);
@@ -41,7 +43,7 @@ HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioP
     addAndMakeVisible (midiLogView);
 
     refreshDeviceStatus();
-    startTimerHz (30);  // ~33ms; plenty for visual MIDI feedback
+    startTimerHz (30);  // refreshes both the MIDI log and the DMX preview
 }
 
 HitNoteDmxAudioProcessorEditor::~HitNoteDmxAudioProcessorEditor()
@@ -77,7 +79,12 @@ void HitNoteDmxAudioProcessorEditor::resized()
     area.removeFromTop (8);
     deviceStatusLabel.setBounds (area.removeFromTop (22));
     area.removeFromTop (8);
-    midiLogView.setBounds (area);
+
+    // Bottom half = MIDI log (compact). Top half = the DMX visualiser.
+    auto logArea = area.removeFromBottom (90);
+    dmxView.setBounds (area);
+    area.removeFromBottom (8);
+    midiLogView.setBounds (logArea);
 }
 
 void HitNoteDmxAudioProcessorEditor::buttonClicked (juce::Button* b)
@@ -126,6 +133,9 @@ void HitNoteDmxAudioProcessorEditor::timerCallback()
                                             entry->velocity));
         ++drained;
     }
+
+    // Refresh the live DMX preview.
+    dmxView.repaint();
 }
 
 void HitNoteDmxAudioProcessorEditor::refreshDeviceStatus()

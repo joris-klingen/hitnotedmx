@@ -56,6 +56,12 @@ public:
     EnttecProDmx& getDmx() noexcept                                   { return dmx; }
     MidiLog& getMidiLog() noexcept                                    { return midiLog; }
 
+    // Read-only view of the composition's per-channel output, refreshed
+    // every audio block. Read from the GUI thread for the on-screen DMX
+    // visualizer. Per-cell tearing under a concurrent audio-thread write
+    // is acceptable for a 30 Hz visualisation.
+    const DmxValues& getDmxValues() const noexcept                    { return dmxValues; }
+
     // UI state. Not stored in the parameter tree because they are not
     // host-automatable.
     bool blackout = false;

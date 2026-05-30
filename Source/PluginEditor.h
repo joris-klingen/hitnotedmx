@@ -3,6 +3,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include "DmxVisualizer.h"
 #include "PluginProcessor.h"
 
 namespace hitnotedmx
@@ -43,6 +44,7 @@ private:
     juce::TextButton blackoutButton    { "Blackout" };
     juce::Label      deviceStatusLabel;
     juce::TextEditor midiLogView;
+    DmxVisualizer    dmxView;
 
     bool connectAttempt = false;
 
