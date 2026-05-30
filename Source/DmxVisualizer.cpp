@@ -34,6 +34,22 @@ DmxVisualizer::DmxVisualizer (const DmxValues& valuesRef)
 
 void DmxVisualizer::resized()
 {
+    // Allocate the image once per size change. rebuildCache() reuses
+    // this buffer — the previous version allocated a fresh ~1 MB Image
+    // on every state change, which made the GUI visibly glitchy under
+    // a running chase after a few loop iterations as the allocator
+    // started fragmenting.
+    const int w = getWidth();
+    const int h = getHeight();
+    if (w > 0 && h > 0)
+    {
+        // clearImage=false — rebuildCache fills every pixel itself.
+        cachedImage = juce::Image (juce::Image::RGB, w, h, false);
+    }
+    else
+    {
+        cachedImage = juce::Image();
+    }
     rebuildCache();
 }
 
@@ -47,15 +63,10 @@ void DmxVisualizer::paint (juce::Graphics& g)
 
 void DmxVisualizer::rebuildCache()
 {
-    const int w = getWidth();
-    const int h = getHeight();
-    if (w <= 0 || h <= 0)
-    {
-        cachedImage = juce::Image();
+    if (! cachedImage.isValid())
         return;
-    }
 
-    cachedImage = juce::Image (juce::Image::RGB, w, h, true);
+    const int w = cachedImage.getWidth();
     juce::Graphics g (cachedImage);
 
     g.fillAll (juce::Colour (0xff141414));
