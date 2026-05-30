@@ -170,17 +170,21 @@ void HitNoteDmxAudioProcessorEditor::flushLogIfDirty()
     if (! logDirty)
         return;
 
-    // Bound the buffer so the editor's relayout cost stays roughly
-    // constant. Trim only when we've grown past the cap; drop entire
-    // leading lines, not arbitrary character ranges.
-    constexpr int kSoftCap = 8000;   // ~200 lines × ~40 chars
-    constexpr int kHardCap = 12000;  // grow window before another trim
-    if (logBuffer.length() > kHardCap)
+    // Keep only the most recent 10 lines. The log is just for
+    // confirming MIDI arrives — not a post-mortem record — so the
+    // TextEditor's relayout cost stays trivial regardless of how
+    // many notes have fired since the plugin loaded.
+    constexpr int kMaxLines = 10;
+    int newlineCount = 0;
+    for (auto ch : logBuffer)
+        if (ch == '\n')
+            ++newlineCount;
+    while (newlineCount > kMaxLines)
     {
-        const int chop = logBuffer.length() - kSoftCap;
-        const int nl   = logBuffer.indexOfChar (chop, '\n');
-        if (nl > 0)
-            logBuffer = logBuffer.substring (nl + 1);
+        const int nl = logBuffer.indexOfChar ('\n');
+        if (nl < 0) break;
+        logBuffer = logBuffer.substring (nl + 1);
+        --newlineCount;
     }
 
     midiLogView.setText (logBuffer, false);
