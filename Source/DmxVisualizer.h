@@ -9,45 +9,43 @@
 namespace hitnotedmx
 {
 
-// On-screen DMX output preview. Lays the rig out as it actually sits
-// on stage:
+// On-screen DMX output preview.
 //
-//   4 vertical bars side-by-side (each 9 cells tall, pixel 1 at the
-//   bottom matching the rig's bottom-up orientation) + 2 RGBW spots
-//   below the bars.
+// Architecture: the visualiser keeps a cached juce::Image that mirrors
+// what it would draw if it were repainted right now. paint() is a
+// single g.drawImageAt() blit. repaintIfChanged() builds an 8-bit
+// fingerprint of the rig footprint and, only when it differs from
+// what's currently in the cache, redraws the affected cells into the
+// cached image and calls repaint(). Live's compositor still has work
+// to do on each repaint, but the rasterisation cost (36 fillRects +
+// text + spot ellipses) is amortised across long static stretches.
 //
-// Reads DmxValues directly from the audio thread's shared buffer.
-// Tearing on individual cells is acceptable at the timer's repaint
-// rate — it's a visualiser, not the source of truth.
-//
-// `repaintIfChanged()` is called from the editor's timer instead of
-// invoking repaint() unconditionally; the visualiser quantises the
-// rig footprint into a small fingerprint and skips repaint when it
-// matches the last drawn frame. Live's plug-in window compositor was
-// chewing GPU on every 30 Hz repaint of 36 cells + 2 spots even when
-// nothing on stage was actually changing.
+// Layout:
+//   4 vertical bars (each 9 cells tall, pixel 1 at the bottom matching
+//   the rig's bottom-up orientation) + 2 RGBW spots below the bars.
 class DmxVisualizer : public juce::Component
 {
 public:
-    explicit DmxVisualizer (const DmxValues& valuesRef)
-        : values (valuesRef)
-    {
-        setOpaque (true);  // we fill the entire bounds in paint()
-        lastFingerprint.fill (0);
-    }
+    explicit DmxVisualizer (const DmxValues& valuesRef);
 
     void paint (juce::Graphics&) override;
+    void resized() override;
 
-    // Compare current DmxValues to the previously-painted frame; only
-    // schedule a repaint if anything in the rig footprint moved.
+    // Build the rig fingerprint; if it differs from the cached image,
+    // re-rasterise the image and schedule a repaint. Called from the
+    // editor's GUI timer.
     void repaintIfChanged();
 
 private:
+    void rebuildCache();
+
     static constexpr int kFingerprintSize =
-        kNumBars * kPixelsPerBar * 3 + kNumSpots * 6;  // 120
+        kNumBars * kPixelsPerBar * 3 + kNumSpots * 6;  // 120 bytes
 
     const DmxValues& values;
-    std::array<std::uint8_t, kFingerprintSize> lastFingerprint;
+
+    juce::Image cachedImage;  // ARGB; fully covers the component bounds
+    std::array<std::uint8_t, kFingerprintSize> lastFingerprint {};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DmxVisualizer)
 };

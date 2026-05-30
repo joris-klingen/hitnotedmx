@@ -43,9 +43,10 @@ HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioP
     addAndMakeVisible (midiLogView);
 
     refreshDeviceStatus();
-    startTimerHz (24);  // refreshes the MIDI log and the DMX preview;
-                        // 24 Hz is plenty for visual confirmation and
-                        // ~20% less compositing work than 30.
+    startTimerHz (15);  // visual confirmation only; combined with the
+                        // visualiser's fingerprint diff, the actual
+                        // GUI work is bounded by how often the rig's
+                        // 120 quantised channels change byte values.
 }
 
 HitNoteDmxAudioProcessorEditor::~HitNoteDmxAudioProcessorEditor()
