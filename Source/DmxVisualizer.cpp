@@ -27,6 +27,7 @@ juce::Colour rgbwToScreen (float r, float g, float b, float w, float dim) noexce
 
 void DmxVisualizer::paint (juce::Graphics& g)
 {
+    // Component is opaque — we paint every pixel of our bounds.
     g.fillAll (juce::Colour (0xff141414));
 
     const int barW       = 40;
@@ -39,6 +40,8 @@ void DmxVisualizer::paint (juce::Graphics& g)
     const int originY = 8;
 
     // ---- Bars ----------------------------------------------------------
+    // No anti-aliased per-cell borders; a 2 px gap between cells reads
+    // just as well and skips the slow drawRect path.
     for (int barIdx = 0; barIdx < kNumBars; ++barIdx)
     {
         const auto& bar = kBars[barIdx];
@@ -47,20 +50,14 @@ void DmxVisualizer::paint (juce::Graphics& g)
         for (int pixel = 1; pixel <= bar.pixels; ++pixel)
         {
             const auto ch = bar.channelsFor (pixel);
-            const float r = values.get (ch[0]);
+            const float r  = values.get (ch[0]);
             const float gv = values.get (ch[1]);
-            const float b = values.get (ch[2]);
+            const float b  = values.get (ch[2]);
 
             // pixel 1 = bottom row → highest screen y
             const int row = bar.pixels - pixel;
-            const juce::Rectangle<int> cell (x, originY + row * cellH, barW, cellH - 2);
-
             g.setColour (juce::Colour::fromRGB (toByte (r), toByte (gv), toByte (b)));
-            g.fillRect (cell);
-
-            // Subtle cell border for legibility against the dark background.
-            g.setColour (juce::Colour (0xff2a2a2a));
-            g.drawRect (cell, 1);
+            g.fillRect (x, originY + row * cellH, barW, cellH - 2);
         }
 
         // Bar label.
@@ -92,9 +89,6 @@ void DmxVisualizer::paint (juce::Graphics& g)
         g.setColour (rgbwToScreen (r, gv, b, w, dim));
         g.fillEllipse (static_cast<float> (x), static_cast<float> (spotY),
                        static_cast<float> (spotSize), static_cast<float> (spotSize));
-        g.setColour (juce::Colour (0xff2a2a2a));
-        g.drawEllipse (static_cast<float> (x), static_cast<float> (spotY),
-                       static_cast<float> (spotSize), static_cast<float> (spotSize), 1.0f);
 
         g.setColour (juce::Colours::lightgrey);
         g.setFont (juce::FontOptions (10.0f));
@@ -102,6 +96,42 @@ void DmxVisualizer::paint (juce::Graphics& g)
                     x, spotY + spotSize + 2, spotSize, 14,
                     juce::Justification::centred);
     }
+}
+
+void DmxVisualizer::repaintIfChanged()
+{
+    // Build a tiny fingerprint of the rig footprint by quantising each
+    // channel to 8-bit. Quantising matches what actually paints, so we
+    // never miss a visible change; sub-byte float wobble that would
+    // round to the same byte gets ignored.
+    std::array<std::uint8_t, kFingerprintSize> current {};
+    int i = 0;
+    for (int b = 0; b < kNumBars; ++b)
+    {
+        const auto& bar = kBars[b];
+        for (int p = 1; p <= bar.pixels; ++p)
+        {
+            const auto ch = bar.channelsFor (p);
+            current[i++] = toByte (values.get (ch[0]));
+            current[i++] = toByte (values.get (ch[1]));
+            current[i++] = toByte (values.get (ch[2]));
+        }
+    }
+    for (int s = 0; s < kNumSpots; ++s)
+    {
+        const auto& spot = kSpots[s];
+        current[i++] = toByte (values.get (spot.dimmer()));
+        current[i++] = toByte (values.get (spot.red()));
+        current[i++] = toByte (values.get (spot.green()));
+        current[i++] = toByte (values.get (spot.blue()));
+        current[i++] = toByte (values.get (spot.white()));
+        current[i++] = toByte (values.get (spot.strobe()));
+    }
+
+    if (current == lastFingerprint)
+        return;
+    lastFingerprint = current;
+    repaint();
 }
 
 }  // namespace hitnotedmx

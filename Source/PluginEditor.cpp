@@ -43,7 +43,9 @@ HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioP
     addAndMakeVisible (midiLogView);
 
     refreshDeviceStatus();
-    startTimerHz (30);  // refreshes both the MIDI log and the DMX preview
+    startTimerHz (24);  // refreshes the MIDI log and the DMX preview;
+                        // 24 Hz is plenty for visual confirmation and
+                        // ~20% less compositing work than 30.
 }
 
 HitNoteDmxAudioProcessorEditor::~HitNoteDmxAudioProcessorEditor()
@@ -126,16 +128,19 @@ void HitNoteDmxAudioProcessorEditor::timerCallback()
         if (! entry)
             break;
         const auto kind = entry->kind == MidiLogEntry::Kind::NoteOn ? "on " : "off";
-        appendLog (juce::String::formatted ("[%s] ch%-2d %-4s vel=%d",
+        // Include the raw MIDI pitch number alongside the note name so
+        // the palette mapping (pitch − 36 → palette[…]) is easy to verify.
+        appendLog (juce::String::formatted ("[%s] ch%-2d %-4s (%3d) vel=%d",
                                             kind,
                                             entry->channel,
                                             midiNoteName (entry->pitch).toRawUTF8(),
+                                            (int) entry->pitch,
                                             entry->velocity));
         ++drained;
     }
 
-    // Refresh the live DMX preview.
-    dmxView.repaint();
+    // Refresh the live DMX preview only when something actually changed.
+    dmxView.repaintIfChanged();
 }
 
 void HitNoteDmxAudioProcessorEditor::refreshDeviceStatus()
