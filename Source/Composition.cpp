@@ -64,30 +64,39 @@ inline constexpr bool isBarSelPitch (int p) { return p >= kBarSelStart && p <= k
 
 
 // ---- pixel statics (pitch 12..23) ---------------------------------------
-// 9-bit mask: bit n (0..8) = pixel (n+1) selected.
+// 18-bit mask: bit n (0..17) = pixel (n+1) selected.
+//
+// The patterns are authored against a 9-zone bar (the historical 9-pixel
+// layout) and stretched across the 18 physical pixels: zone z lights the
+// two adjacent pixels 2z-1 and 2z.
 
 constexpr int kPixelStaticStart = 12;
 constexpr int kPixelStaticEnd   = 23;
 constexpr int kNumPixelStatics  = kPixelStaticEnd - kPixelStaticStart + 1;
 
-constexpr std::uint16_t bit (int p)  // 1-based pixel → bit
+constexpr std::uint32_t bit (int p)  // 1-based pixel → bit
 {
-    return static_cast<std::uint16_t> (1u << (p - 1));
+    return static_cast<std::uint32_t> (1u << (p - 1));
 }
 
-constexpr std::array<std::uint16_t, kNumPixelStatics> kPixelStaticMask {{
-    bit(1),                                                          // 12 {1}
-    static_cast<std::uint16_t> (bit(2) | bit(3)),                    // 13 {2,3}
-    bit(4),                                                          // 14 {4}
-    static_cast<std::uint16_t> (bit(5) | bit(6)),                    // 15 {5,6}
-    static_cast<std::uint16_t> (bit(7) | bit(8)),                    // 16 {7,8}
-    bit(9),                                                          // 17 {9}
-    static_cast<std::uint16_t> (bit(1) | bit(2) | bit(3)),           // 18 {1..3}
-    static_cast<std::uint16_t> (bit(4) | bit(5) | bit(6)),           // 19 {4..6}
-    static_cast<std::uint16_t> (bit(7) | bit(8) | bit(9)),           // 20 {7..9}
-    static_cast<std::uint16_t> (bit(1) | bit(9)),                    // 21 {1,9}
-    static_cast<std::uint16_t> (bit(1) | bit(3) | bit(5) | bit(7) | bit(9)),  // 22 odd
-    static_cast<std::uint16_t> (bit(2) | bit(5) | bit(8)),           // 23 {2,5,8}
+constexpr std::uint32_t zone (int z)  // 1-based 9-zone index → its two pixels
+{
+    return bit (2 * z - 1) | bit (2 * z);
+}
+
+constexpr std::array<std::uint32_t, kNumPixelStatics> kPixelStaticMask {{
+    zone(1),                                                  // 12 {1}
+    zone(2) | zone(3),                                        // 13 {2,3}
+    zone(4),                                                  // 14 {4}
+    zone(5) | zone(6),                                        // 15 {5,6}
+    zone(7) | zone(8),                                        // 16 {7,8}
+    zone(9),                                                  // 17 {9}
+    zone(1) | zone(2) | zone(3),                              // 18 {1..3}
+    zone(4) | zone(5) | zone(6),                              // 19 {4..6}
+    zone(7) | zone(8) | zone(9),                              // 20 {7..9}
+    zone(1) | zone(9),                                        // 21 {1,9}
+    zone(1) | zone(3) | zone(5) | zone(7) | zone(9),          // 22 odd
+    zone(2) | zone(5) | zone(8),                              // 23 {2,5,8}
 }};
 
 inline constexpr bool isPixelStaticPitch (int p)
@@ -202,7 +211,7 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out) noexcept
     });
 
     // ---- 4. Pixel-static layer ------------------------------------------
-    std::array<Route, kPixelsPerBar + 1> pixelRoute {};   // index 1..9 (0 unused)
+    std::array<Route, kPixelsPerBar + 1> pixelRoute {};   // index 1..18 (0 unused)
     std::array<int,   kPixelsPerBar + 1> pixelBestVel {};
     for (auto& r : pixelRoute)   r = Route::None;
     for (auto& v : pixelBestVel) v = -1;

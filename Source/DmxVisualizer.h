@@ -17,11 +17,11 @@ namespace hitnotedmx
 // fingerprint of the rig footprint and, only when it differs from
 // what's currently in the cache, redraws the affected cells into the
 // cached image and calls repaint(). Live's compositor still has work
-// to do on each repaint, but the rasterisation cost (36 fillRects +
+// to do on each repaint, but the rasterisation cost (72 fillRects +
 // text + spot ellipses) is amortised across long static stretches.
 //
 // Layout:
-//   4 vertical bars (each 9 cells tall, pixel 1 at the bottom matching
+//   4 vertical bars (each 18 cells tall, pixel 1 at the bottom matching
 //   the rig's bottom-up orientation) + 2 RGBW spots below the bars.
 class DmxVisualizer : public juce::Component
 {
@@ -40,7 +40,7 @@ private:
     void rebuildCache();
 
     static constexpr int kFingerprintSize =
-        kNumBars * kPixelsPerBar * 3 + kNumSpots * 6;  // 120 bytes
+        kNumBars * kPixelsPerBar * 3 + kNumSpots * 6;  // 228 bytes
 
     const DmxValues& values;
 

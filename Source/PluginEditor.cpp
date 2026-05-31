@@ -17,7 +17,7 @@ juce::String midiNoteName (juce::uint8 pitch)
 HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioProcessor& p)
     : AudioProcessorEditor (&p), proc (p), dmxView (p.getDmxValues())
 {
-    setSize (720, 440);
+    setSize (720, 660);
 
     addAndMakeVisible (connectUsbButton);
     addAndMakeVisible (disconnectButton);
@@ -46,7 +46,7 @@ HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioP
     startTimerHz (15);  // visual confirmation only; combined with the
                         // visualiser's fingerprint diff, the actual
                         // GUI work is bounded by how often the rig's
-                        // 120 quantised channels change byte values.
+                        // 228 quantised channels change byte values.
 }
 
 HitNoteDmxAudioProcessorEditor::~HitNoteDmxAudioProcessorEditor()
