@@ -1,9 +1,15 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "Palette.h"
 #include "Rig.h"
 
 namespace hitnotedmx
 {
+
+namespace
+{
+constexpr int kPreviewVelocity = 110;  // held velocity for previewed triggers
+}
 
 juce::String HitNoteDmxAudioProcessor::paramIdForChannel (int channel1to512)
 {
@@ -58,6 +64,9 @@ HitNoteDmxAudioProcessor::HitNoteDmxAudioProcessor()
 
     ledMasterDimParam  = parameters.getRawParameterValue (kLedMasterDimId);
     spotMasterDimParam = parameters.getRawParameterValue (kSpotMasterDimId);
+
+    for (auto& p : previewPitch)
+        p.store (-1);
 }
 
 HitNoteDmxAudioProcessor::~HitNoteDmxAudioProcessor()
@@ -145,6 +154,9 @@ void HitNoteDmxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         }
     }
 
+    // 2b. Fold in any live preview the GUI requested (held until cleared).
+    applyPreview (blockStartBeat);
+
     // 3. Compose once per block using the playhead time at block start.
     //    Block durations are typically 5-10 ms so per-event time skew
     //    inside one block is negligible for the recipes' periodic shapes,
@@ -182,6 +194,48 @@ void HitNoteDmxAudioProcessor::setStateInformation (const void* data, int sizeIn
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
         if (xml->hasTagName (parameters.state.getType()))
             parameters.replaceState (juce::ValueTree::fromXml (*xml));
+}
+
+void HitNoteDmxAudioProcessor::setPreview (int pitch) noexcept
+{
+    const bool isColour   = (pitch >= kPrimaryPaletteStart && pitch < kBlackoutNote);
+    const bool isBlackout = (pitch == kBlackoutNote);
+    const bool needsColour = (pitch >= 0 && ! isColour && ! isBlackout);
+
+    previewPitch[0].store (pitch);
+    previewPitch[1].store (needsColour ? kPrimaryPaletteStart   + 22 : -1);  // cool white
+    previewPitch[2].store (needsColour ? kSecondaryPaletteStart + 22 : -1);
+}
+
+void HitNoteDmxAudioProcessor::clearPreview() noexcept
+{
+    for (auto& p : previewPitch)
+        p.store (-1);
+}
+
+void HitNoteDmxAudioProcessor::applyPreview (double atBeat) noexcept
+{
+    const std::array<int, 3> want { previewPitch[0].load(),
+                                    previewPitch[1].load(),
+                                    previewPitch[2].load() };
+
+    auto contains = [] (const std::array<int, 3>& set, int v)
+    {
+        return v >= 0 && (set[0] == v || set[1] == v || set[2] == v);
+    };
+
+    // Release previously-held preview notes that are no longer wanted.
+    for (int a : appliedPreview)
+        if (a >= 0 && ! contains (want, a))
+            midiState.noteOff (static_cast<std::uint8_t> (a));
+
+    // Hold newly-requested preview notes.
+    for (int wv : want)
+        if (wv >= 0 && ! contains (appliedPreview, wv))
+            midiState.noteOn (static_cast<std::uint8_t> (wv), 1,
+                              static_cast<std::uint8_t> (kPreviewVelocity), atBeat);
+
+    appliedPreview = want;
 }
 
 void HitNoteDmxAudioProcessor::parameterChanged (const juce::String& parameterID, float newValue)

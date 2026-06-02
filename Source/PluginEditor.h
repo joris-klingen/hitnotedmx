@@ -5,6 +5,7 @@
 
 #include "DmxVisualizer.h"
 #include "PluginProcessor.h"
+#include "TriggerMenu.h"
 
 namespace hitnotedmx
 {
@@ -58,6 +59,10 @@ private:
     juce::Label      deviceStatusLabel;
     juce::TextEditor midiLogView;
     DmxVisualizer    dmxView;
+
+    // Right pane: scrollable clickable trigger reference + live preview.
+    juce::Viewport triggerViewport;
+    TriggerMenu    triggerMenu;
 
     // Master-dim knobs, attached to the host-automatable parameters so
     // the on-screen control, host automation, and any MIDI-mapped knob

@@ -2,6 +2,9 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include <array>
+#include <atomic>
+
 #include "Composition.h"
 #include "EnttecProDmx.h"
 #include "MidiLog.h"
@@ -68,6 +71,13 @@ public:
 
     static juce::String paramIdForChannel (int channel1to512);
 
+    // Live preview (GUI thread → audio thread). setPreview holds the given
+    // trigger pitch — plus a default primary/secondary colour for non-
+    // colour triggers so bars/pixels/dynamics are actually visible — until
+    // clearPreview. Injected into MidiState each block via lock-free atomics.
+    void setPreview (int pitch) noexcept;
+    void clearPreview() noexcept;
+
     // Automatable master-dim parameter IDs (0..1). Exposed so the editor
     // can attach on-screen knobs to the same parameters the host sees.
     static constexpr const char* kLedMasterDimId  = "ledMasterDim";
@@ -77,6 +87,9 @@ private:
     void parameterChanged (const juce::String& parameterID, float newValue) override;
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+
+    // Apply the GUI's preview request to midiState (audio thread).
+    void applyPreview (double atBeat) noexcept;
 
     juce::AudioProcessorValueTreeState parameters;
 
@@ -90,6 +103,13 @@ private:
     MidiState  midiState;
     DmxValues  dmxValues;
     ColorFadeState colorFade;  // persists colour-fade state across blocks
+
+    // Preview injection. previewPitch[] is written by the GUI thread and
+    // read on the audio thread (slot 0 = the trigger, 1/2 = default
+    // colours); -1 = empty. appliedPreview is audio-thread-only bookkeeping
+    // so we noteOn/noteOff only on change.
+    std::array<std::atomic<int>, 3> previewPitch;
+    std::array<int, 3>              appliedPreview { -1, -1, -1 };
 
     double sampleRate_ { 48000.0 };
 

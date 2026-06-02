@@ -49,6 +49,7 @@ target_sources(HitNoteDmx PRIVATE
     Source/Recipes.cpp
     Source/Composition.cpp
     Source/DmxVisualizer.cpp
+    Source/TriggerMenu.cpp
 )
 
 target_include_directories(HitNoteDmx PRIVATE

@@ -117,6 +117,13 @@ HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioP
     spotDimAttach = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
         proc.getParameters(), HitNoteDmxAudioProcessor::kSpotMasterDimId, spotDimSlider);
 
+    // Right pane: trigger reference menu with press-and-hold live preview.
+    triggerViewport.setViewedComponent (&triggerMenu, false);
+    triggerViewport.setScrollBarsShown (true, false);
+    addAndMakeVisible (triggerViewport);
+    triggerMenu.onPreviewStart = [this] (int pitch) { proc.setPreview (pitch); };
+    triggerMenu.onPreviewStop  = [this]             { proc.clearPreview(); };
+
     midiLogView.setMultiLine (true, false);
     midiLogView.setReadOnly (true);
     midiLogView.setCaretVisible (false);
@@ -165,18 +172,8 @@ void HitNoteDmxAudioProcessorEditor::paint (juce::Graphics& g)
                     juce::Justification::centredLeft);
     };
     card (leftPaneArea,  "Controls");
-    card (rightPaneArea, "Triggers");
+    card (rightPaneArea, "Triggers - hold to preview");
     // Middle pane is the opaque visualiser; no card needed behind it.
-
-    // Placeholder for the upcoming clickable test-sound menu.
-    if (! rightPaneArea.isEmpty())
-    {
-        g.setColour (juce::Colour (0xff5a5a5a));
-        g.setFont (juce::FontOptions (11.0f));
-        g.drawFittedText ("Test triggers\ncoming soon",
-                          rightPaneArea.reduced (12).withTrimmedTop (20),
-                          juce::Justification::centredTop, 2);
-    }
 }
 
 void HitNoteDmxAudioProcessorEditor::resized()
@@ -225,7 +222,14 @@ void HitNoteDmxAudioProcessorEditor::resized()
     // ---- MIDDLE pane: the rig visualiser ----
     dmxView.setBounds (midPaneArea);
 
-    // ---- RIGHT pane: reserved for the clickable test-sound menu (task #4) ----
+    // ---- RIGHT pane: the clickable trigger menu (scrollable) ----
+    {
+        auto rightContent = rightPaneArea.reduced (8).withTrimmedTop (16);
+        triggerViewport.setBounds (rightContent);
+        triggerMenu.setSize (triggerViewport.getMaximumVisibleWidth(),
+                             triggerMenu.preferredHeight());
+        triggerViewport.setViewPosition (0, 0);  // always start at the top
+    }
 }
 
 void HitNoteDmxAudioProcessorEditor::buttonClicked (juce::Button* b)
