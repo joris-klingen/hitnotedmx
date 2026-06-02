@@ -167,6 +167,16 @@ void HitNoteDmxAudioProcessorEditor::paint (juce::Graphics& g)
     card (leftPaneArea,  "Controls");
     card (rightPaneArea, "Triggers");
     // Middle pane is the opaque visualiser; no card needed behind it.
+
+    // Placeholder for the upcoming clickable test-sound menu.
+    if (! rightPaneArea.isEmpty())
+    {
+        g.setColour (juce::Colour (0xff5a5a5a));
+        g.setFont (juce::FontOptions (11.0f));
+        g.drawFittedText ("Test triggers\ncoming soon",
+                          rightPaneArea.reduced (12).withTrimmedTop (20),
+                          juce::Justification::centredTop, 2);
+    }
 }
 
 void HitNoteDmxAudioProcessorEditor::resized()
@@ -181,11 +191,10 @@ void HitNoteDmxAudioProcessorEditor::resized()
     area.removeFromRight (gap);
     midPaneArea   = area;
 
-    // Content insets inside each card (leave room for the card title).
-    auto leftContent  = leftPaneArea.reduced (10).withTrimmedTop (14);
-    auto rightContent = rightPaneArea.reduced (10).withTrimmedTop (14);
+    // Content inset inside the left card (leave room for the card title).
+    auto leftContent = leftPaneArea.reduced (10).withTrimmedTop (14);
 
-    // ---- LEFT pane: master-dim knobs (top) + MIDI log (fills rest) ----
+    // ---- LEFT pane: knobs (top) + MIDI log (middle) + utility buttons (bottom) ----
     {
         auto knobRow = leftContent.removeFromTop (108);
         const int colW = knobRow.getWidth() / 2;
@@ -196,25 +205,27 @@ void HitNoteDmxAudioProcessorEditor::resized()
         };
         place (knobRow.removeFromLeft (colW), ledDimLabel,  ledDimSlider);
         place (knobRow,                       spotDimLabel, spotDimSlider);
-
         leftContent.removeFromTop (8);
+
+        // Utility controls pinned to the bottom: status line + the three
+        // big buttons. The MIDI log takes whatever is left in between.
+        auto controls = leftContent.removeFromBottom (150);
+        connectUsbButton.setBounds (controls.removeFromTop (32));
+        controls.removeFromTop (6);
+        disconnectButton.setBounds (controls.removeFromTop (32));
+        controls.removeFromTop (6);
+        blackoutButton.setBounds (controls.removeFromTop (32));
+        controls.removeFromTop (6);
+        deviceStatusLabel.setBounds (controls);  // remaining (~36px, wraps to 2 lines)
+
+        leftContent.removeFromBottom (8);
         midiLogView.setBounds (leftContent);
     }
 
     // ---- MIDDLE pane: the rig visualiser ----
     dmxView.setBounds (midPaneArea);
 
-    // ---- RIGHT pane: connection + test controls ----
-    {
-        connectUsbButton.setBounds (rightContent.removeFromTop (30));
-        rightContent.removeFromTop (8);
-        disconnectButton.setBounds (rightContent.removeFromTop (30));
-        rightContent.removeFromTop (8);
-        blackoutButton.setBounds (rightContent.removeFromTop (30));
-        rightContent.removeFromTop (12);
-        deviceStatusLabel.setBounds (rightContent.removeFromTop (40));
-        // Remaining space is reserved for the clickable test-sound menu (task #4).
-    }
+    // ---- RIGHT pane: reserved for the clickable test-sound menu (task #4) ----
 }
 
 void HitNoteDmxAudioProcessorEditor::buttonClicked (juce::Button* b)
