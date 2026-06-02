@@ -4,8 +4,10 @@ Living development log. Updated alongside non-trivial commits so any
 future Claude session (or a future you) can pick up without
 re-archaeology.
 
-Latest commit referenced: `a1a724a` (MIDI-log batching) plus the
-follow-up to trim the log to 10 lines.
+Latest commit referenced: `3e98d70` (utility buttons → bottom-left).
+Recent arc: 18 px/bar rig bump → master-dim params + 3-pane editor
+redesign → spots-above-grid visualiser → velocity-driven colour fade →
+utility-button relocation. A Standalone build now ships alongside VST3.
 
 ## What this repo is
 
@@ -40,15 +42,17 @@ issue #4).
 | Layer | File(s) | State |
 |-------|---------|-------|
 | VST plumbing | `PluginProcessor.{h,cpp}`, `CMakeLists.txt` | Standard audio-effect shape (stereo I/O + MIDI input). `IS_MIDI_EFFECT=TRUE` did not load in Live; the working shape mirrors HitDmx. |
-| Rig | `Rig.h` | `constexpr` 4-bar × 9-pixel + 2-spot layout (120 channels). Matches `HITMIX_EXTENDED_RIG` in `lightmidi/fixtures_extended.py`. |
+| Rig | `Rig.h` | `constexpr` 4-bar × 18-pixel + 2-spot layout (228 channels: bars DMX 1–216, spots 217/223). Mirrors `HITMIX_EXTENDED_RIG` in `lightmidi/fixtures_extended.py`; bumped 9 → 18 px/bar. |
 | Palette | `Palette.h` | Verbatim 24-color table from `midi_to_dmx.py:PALETTE`. |
 | Held-note tracker | `MidiState.{h,cpp}` | 128-slot array indexed by pitch. O(1) noteOn/noteOff/clear, no allocations. |
 | Dynamic recipes | `Recipes.{h,cpp}` | All 12 ports (chase_up/down, ping_pong, snake, sine_wave, sparkle, breathe, sweep_up/down, strobe, kick_pulse, alt_swap). Function-pointer dispatch from pitch. |
-| Composition | `Composition.{h,cpp}` | Port of `_compute_state`. Bit-mask lookup tables, mask intersection across utility / static / dynamic layers, primary/secondary palette routing, spot RGBW with warm-white tint. |
+| Composition | `Composition.{h,cpp}` | Port of `_compute_state`. Bit-mask lookup tables, mask intersection across utility / static / dynamic layers, primary/secondary palette routing, spot RGBW with warm-white tint. Plus master-dim scaling and velocity-driven linear colour fade (`ColorFadeState`, see below). |
+| Master dims | `PluginProcessor.{h,cpp}` | Two automatable params — LED Master Dim + Spot Master Dim (0..1, shown as %). Applied inside `computeDmx` so output and on-screen preview both reflect them; MIDI-mappable in the host. |
+| Colour fade | `Composition.{h,cpp}` | Each palette's displayed colour ramps linearly toward the winning note. Fade duration from the note's velocity (hard = instant, soft = up to 3 s) → a soft "black" palette note is a slow fade-to-black. State persists across blocks; advanced by wall-clock dt so it runs even when transport is stopped. |
 | Audio-thread → GUI MIDI log | `MidiLog.{h,cpp}` | Lock-free SPSC ring (256 entries). |
-| processBlock wiring | `PluginProcessor.cpp` | Pulls PPQ + BPM from `AudioPlayHead`, stamps MIDI events to beat time, runs `computeDmx()` once per block, pushes 120 channels via `dmx.setChannel()`. Falls back to PPQ=0 / BPM=120 when transport isn't running (static layers still work; periodic recipes freeze). |
-| Editor | `PluginEditor.{h,cpp}` | Connect / Disconnect / Blackout buttons + ENTTEC status + a compact MIDI log + the visualiser. |
-| On-screen DMX preview | `DmxVisualizer.{h,cpp}` | 4 vertical bars × 9 cells + 2 spot circles. Pre-rendered into a single `juce::Image`, blitted by `paint()`. Re-rasterised only when the rig footprint's 8-bit fingerprint changes. |
+| processBlock wiring | `PluginProcessor.cpp` | Pulls PPQ + BPM from `AudioPlayHead`, stamps MIDI events to beat time, runs `computeDmx()` once per block (with master-dim values + colour-fade state + block dt), pushes 228 channels via `dmx.setChannel()`. Falls back to PPQ=0 / BPM=120 when transport isn't running (static layers still work; periodic recipes freeze). |
+| Editor | `PluginEditor.{h,cpp}` | Three-pane layout — left: master-dim knobs (custom rotary look) + MIDI log + Connect/Disconnect/Blackout + ENTTEC status; middle: visualiser; right: reserved card for the test-trigger menu (task #4). Also builds as a Standalone app for DAW-free testing. |
+| On-screen DMX preview | `DmxVisualizer.{h,cpp}` | 2 spot circles on top, then 4 vertical bars × 18 cells. Pre-rendered into a single `juce::Image`, blitted by `paint()`. Re-rasterised only when the rig footprint's 8-bit fingerprint changes. |
 | ENTTEC driver | `EnttecProDmx.{h,cpp}` | Mirror copy from `hitdmx`, namespace renamed to `hitnotedmx`. Best-effort widget handshake, raised read timeout, 700-byte RX. |
 
 ## How it runs end-to-end
@@ -59,9 +63,10 @@ host MIDI in ─► processBlock ─► MidiState.noteOn/Off
                    │
                    ├─► MidiLog.push  (lock-free) ───────┐
                    │                                    │
-                   └─► computeDmx(state, t, dmxValues)  │
+                   └─► computeDmx(state, t, dmxValues, │
+                          dims, fade, dt)               │
                             │                           │
-                            └─► dmx.setChannel × 120 ──►│ DMX out (USB)
+                            └─► dmx.setChannel × 228 ──►│ DMX out (USB)
                                                         │
                 ┌────────────── GUI thread (15 Hz) ─────┴────┐
                 │ timer:                                      │
@@ -85,13 +90,18 @@ host MIDI in ─► processBlock ─► MidiState.noteOn/Off
    log grew). Latest commit also clamps the log to 10 lines so the
    TextEditor's text never grows past trivial length. Should now be
    stable across long sessions; needs confirmation in extended play.
+   Note the preview now draws **72 cells** (4 × 18) instead of 36 and
+   the window is taller — re-confirm cost under sustained chases.
 
-2. **Colour crossfade deferred.** The Python translator linearly
-   crossfades the two most-recent overlapping colour notes across
-   `min(a.end, b.end)`. The live VST doesn't know future end times so
-   v1 just picks the most-recently-started note. Configurable
-   fade-in window (`currentBeat − startBeat` clamped to a knob) is the
-   natural extension; flagged in `Composition.cpp`.
+2. **Colour fade — shipped (was deferred).** Rather than the offline
+   `min(a.end, b.end)` crossfade (needs future end-times), the live
+   model ramps each palette's displayed colour linearly toward the
+   winner. Fade duration is derived from the triggering note's velocity
+   (hard = instant, soft = up to `kMaxColorFadeSec` = 3 s), so a soft
+   black palette note gives a slow fade-to-black. Implemented in
+   `ColorFadeState` / `advanceFade` in `Composition.cpp`. Open follow-up:
+   tune the 3 s ceiling and the linear-vs-curved velocity mapping once
+   play-tested with a keyboard.
 
 3. **Driver duplication.** `Source/EnttecProDmx.{h,cpp}` is a verbatim
    copy from `hitdmx`, namespace-renamed. The connect-robustness fix
@@ -123,21 +133,34 @@ host MIDI in ─► processBlock ─► MidiState.noteOn/Off
 
 ## Direction
 
-1. **Confirm real DMX out** through the ENTTEC USB Pro with the rig
-   actually lit. Smoke test before composing anything.
-2. **Compose the first songs of the show** in Live with the iteration
-   loop tight: MIDI clips on a track routed to `HitNoteDmx`, lights
-   respond live, no render step. Vocabulary gaps surface naturally as
-   we go.
-3. **Expand the recipe library** as those gaps appear — LLM-drafted,
+Tracked in the session task list; mirrored here for durability.
+
+**Features in flight**
+- **Test-trigger menu** (task #4) — fill the right pane with a clickable
+  list of the whole MIDI vocabulary; clicking injects a temporary held
+  note so the visualiser previews the look.
+- **Velocity-controllable chase tails** (task #5) — needs velocity
+  threaded into the `DynamicFn` signature (recipes currently get none).
+- **Pixel-density reduction** (task #3, experimental) — a master control
+  that thins active LEDs while keeping full-brightness flashes; spike
+  first to judge whether it looks good.
+
+**Show prep**
+1. **Confirm real DMX out** through the ENTTEC USB Pro with the rig lit,
+   incl. the new 228-channel patch (task #6). Smoke test before composing.
+2. **Compose the first songs** in Live — MIDI clips routed to
+   `HitNoteDmx`, lights respond live, no render step.
+3. **Expand the recipe library** (task #7) as gaps appear — LLM-drafted,
    ported to C++ alongside the existing 12.
-4. **Re-add colour crossfade** once it actually matters for a cue
-   (deferred from v1).
-5. **DRY the ENTTEC driver** into a shared static library after the
-   show ships; tolerable mirror policy until then.
-6. **Optional** OpenGL context attached to the editor — only if the
-   software compositor cost ever comes back. Not on the critical
-   path.
+
+**Housekeeping / post-show**
+- **DRY the ENTTEC driver** into a shared static library (task #9);
+  tolerable mirror policy until the show ships.
+- **Confirm long-session GUI stability** (task #10); optional OpenGL
+  context only if software-compositor cost ever returns.
+
+*Done:* colour fade (was deferred), master dims, 3-pane redesign, spots
+above the grid, 18 px/bar rig.
 
 ## How to verify after a fresh checkout
 

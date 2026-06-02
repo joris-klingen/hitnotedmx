@@ -26,10 +26,17 @@ live in Live.
 
 | Phase | What it does | State |
 |-------|--------------|-------|
-| Skeleton | Builds; accepts MIDI; logs note activity in the editor | **shipped (this commit)** |
-| Recipes | Implements chase_up, chase_down, ping_pong, …; writes to channel parameters | TODO |
-| Composition | Mask intersection across utility / static / dynamic layers, primary/secondary palette routing | TODO |
-| Show-time UX | Sensible "what's on right now" view, save/restore of the recipe layer state | TODO |
+| Skeleton | Builds; accepts MIDI; logs note activity in the editor | **shipped** |
+| Recipes | chase_up/down, ping_pong, snake, sine_wave, sparkle, breathe, sweep_up/down, strobe, kick_pulse, alt_swap | **shipped** (12 dynamics; more planned) |
+| Composition | Mask intersection across utility / static / dynamic layers, primary/secondary palette routing, spot RGBW | **shipped** |
+| Colour fade | Velocity-driven linear fade between palette colours (soft black note = slow fade-to-black) | **shipped** |
+| Master dims | Automatable LED + spot master-dim params (MIDI-mappable) | **shipped** |
+| Editor / preview | 3-pane editor (knobs + log + buttons / rig visualiser / reserved trigger pane); Standalone build for DAW-free testing | **shipped** |
+| Show-time UX | Clickable test-trigger menu; save/restore of recipe-layer state | in progress |
+
+The rig is the extended layout: **4 RGB bars × 18 pixels + 2 RGBW
+spots = 228 DMX channels** (bars on DMX 1–216, spots on 217/223),
+mirroring `HITMIX_EXTENDED_RIG` in `hitmixmididmx`.
 
 ## Building
 
@@ -50,14 +57,17 @@ After the plugin loads, you should be able to:
 
 1. Add a fresh MIDI track in Live.
 2. Insert `HitNoteDmx` on it.
-3. Open the editor — you should see the title, connect/disconnect/blackout
-   buttons, the ENTTEC status line, and an empty MIDI log.
-4. Play any MIDI note (computer keyboard works) → the log should print
-   `[on ]  ch1  C3   vel=N` and `[off]  ch1  C3   vel=N`.
+3. Open the editor — left pane shows the master-dim knobs, MIDI log, and
+   the connect/disconnect/blackout buttons + ENTTEC status; the middle
+   pane shows the rig visualiser.
+4. Play any MIDI note (computer keyboard works) → the log prints
+   `[on ]  ch1  C3   vel=N`, and the on-screen rig responds per the
+   MIDI vocabulary (palette colours, bar/pixel selects, chases, spots).
 
-That confirms the audio thread is receiving MIDI and the lock-free
-MidiLog ring is being drained by the GUI timer. No DMX is driven yet
-in this commit.
+That confirms the audio thread is receiving MIDI, the lock-free MidiLog
+ring is drained by the GUI timer, and `computeDmx` is driving the rig.
+For a quick look without a DAW, launch the **Standalone** build at
+`build/HitNoteDmx_artefacts/Standalone/HitNoteDmx.app`.
 
 ## Notes on code organisation
 
