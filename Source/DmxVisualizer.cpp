@@ -71,15 +71,46 @@ void DmxVisualizer::rebuildCache()
 
     g.fillAll (juce::Colour (0xff141414));
 
-    const int barW       = 40;
-    const int barSpacing = 8;
+    const int spotSize    = 56;
+    const int spotSpacing = 24;
+    const int spotLabelH  = 14;
+
+    const int barW       = 64;
+    const int barSpacing = 12;
     const int cellH      = 18;
     const int barsTotalW = kNumBars * barW + (kNumBars - 1) * barSpacing;
     const int barsTotalH = kPixelsPerBar * cellH;
     const int originX    = (w - barsTotalW) / 2;
-    const int originY    = 8;
 
-    // ---- Bars ----------------------------------------------------------
+    // ---- Spots (top row) -----------------------------------------------
+    const int spotsTotalW = kNumSpots * spotSize + (kNumSpots - 1) * spotSpacing;
+    const int spotX0      = (w - spotsTotalW) / 2;
+    const int spotY       = 10;
+
+    for (int s = 0; s < kNumSpots; ++s)
+    {
+        const auto& spot = kSpots[s];
+        const float dim = values.get (spot.dimmer());
+        const float r   = values.get (spot.red());
+        const float gv  = values.get (spot.green());
+        const float b   = values.get (spot.blue());
+        const float ww  = values.get (spot.white());
+
+        const int x = spotX0 + s * (spotSize + spotSpacing);
+        g.setColour (rgbwToScreen (r, gv, b, ww, dim));
+        g.fillEllipse (static_cast<float> (x), static_cast<float> (spotY),
+                       static_cast<float> (spotSize), static_cast<float> (spotSize));
+
+        g.setColour (juce::Colours::lightgrey);
+        g.setFont (juce::FontOptions (10.0f));
+        g.drawText (s == 0 ? "spot_l" : "spot_r",
+                    x, spotY + spotSize + 2, spotSize, spotLabelH,
+                    juce::Justification::centred);
+    }
+
+    // ---- Bars (below the spots) ----------------------------------------
+    const int originY = spotY + spotSize + spotLabelH + 12;
+
     for (int barIdx = 0; barIdx < kNumBars; ++barIdx)
     {
         const auto& bar = kBars[barIdx];
@@ -101,34 +132,6 @@ void DmxVisualizer::rebuildCache()
         g.setFont (juce::FontOptions (10.0f));
         g.drawText ("bar_" + juce::String (barIdx + 1),
                     x, originY + barsTotalH + 2, barW, 14,
-                    juce::Justification::centred);
-    }
-
-    // ---- Spots ---------------------------------------------------------
-    const int spotSize    = 56;
-    const int spotSpacing = 24;
-    const int spotsTotalW = kNumSpots * spotSize + (kNumSpots - 1) * spotSpacing;
-    const int spotX0      = (w - spotsTotalW) / 2;
-    const int spotY       = originY + barsTotalH + 26;
-
-    for (int s = 0; s < kNumSpots; ++s)
-    {
-        const auto& spot = kSpots[s];
-        const float dim = values.get (spot.dimmer());
-        const float r   = values.get (spot.red());
-        const float gv  = values.get (spot.green());
-        const float b   = values.get (spot.blue());
-        const float ww  = values.get (spot.white());
-
-        const int x = spotX0 + s * (spotSize + spotSpacing);
-        g.setColour (rgbwToScreen (r, gv, b, ww, dim));
-        g.fillEllipse (static_cast<float> (x), static_cast<float> (spotY),
-                       static_cast<float> (spotSize), static_cast<float> (spotSize));
-
-        g.setColour (juce::Colours::lightgrey);
-        g.setFont (juce::FontOptions (10.0f));
-        g.drawText (s == 0 ? "spot_l" : "spot_r",
-                    x, spotY + spotSize + 2, spotSize, 14,
                     juce::Justification::centred);
     }
 }

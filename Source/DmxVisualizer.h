@@ -21,8 +21,9 @@ namespace hitnotedmx
 // text + spot ellipses) is amortised across long static stretches.
 //
 // Layout:
-//   4 vertical bars (each 18 cells tall, pixel 1 at the bottom matching
-//   the rig's bottom-up orientation) + 2 RGBW spots below the bars.
+//   2 RGBW spots across the top, then 4 vertical bars below them (each
+//   18 cells tall, pixel 1 at the bottom matching the rig's bottom-up
+//   orientation).
 class DmxVisualizer : public juce::Component
 {
 public:
