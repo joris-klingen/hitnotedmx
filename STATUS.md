@@ -11,25 +11,15 @@ utility-button relocation. A Standalone build now ships alongside VST3.
 
 ## What this repo is
 
-Macros VST3 plugin built on JUCE 8 that takes **MIDI in** and produces
-**DMX out** through an ENTTEC USB Pro. Sibling to
-[`../hitdmx`](../hitdmx) — that one's the bare 512-parameter DMX VST
-the host automates directly. This one carries the recipe layer:
-chases, breathes, sparkles, palette routing, mask intersection, the
-whole MIDI-note vocabulary defined by `../hitmixmididmx`'s offline
-translator.
+A VST3 plugin (JUCE 8) that takes **MIDI in** and produces **DMX out**
+through an ENTTEC USB Pro. It carries the full recipe layer: chases,
+breathes, sparkles, palette routing, mask intersection, and the whole
+MIDI-note vocabulary — all run live on the audio thread.
 
-The relationship between the three artifacts:
-
-| | Repo | Plugin | Role |
-|---|---|---|---|
-| 1 | `hitdmx`       | `HitDmx`      | Bare 512-channel parameter VST (no MIDI). |
-| 2 | `hitmixmididmx`| —             | Python `lightmidi` CLI that converts MIDI clips to DMX automation in an `.als`. |
-| 3 | `hitnotedmx`   | `HitNoteDmx`  | MIDI VST that runs the recipe vocabulary live. Same driver as HitDmx. |
-
-`hitnotedmx` (#3) is the "show engine"; for a 30-minute song-based
-light show we draw MIDI clips into Ableton, route them at `HitNoteDmx`,
-and lights respond in real time without a render step.
+It's the "show engine": for a song-based light show we draw MIDI clips
+into the DAW, route them at `HitNoteDmx`, and the lights respond in real
+time without a render step. The project is self-contained — its note
+vocabulary, palette, rig and ENTTEC driver all live here.
 
 ## What's built and working
 
@@ -41,19 +31,20 @@ issue #4).
 
 | Layer | File(s) | State |
 |-------|---------|-------|
-| VST plumbing | `PluginProcessor.{h,cpp}`, `CMakeLists.txt` | Standard audio-effect shape (stereo I/O + MIDI input). `IS_MIDI_EFFECT=TRUE` did not load in Live; the working shape mirrors HitDmx. |
-| Rig | `Rig.h` | `constexpr` 4-bar × 18-pixel + 2-spot layout (228 channels: bars DMX 1–216, spots 217/223). Mirrors `HITMIX_EXTENDED_RIG` in `lightmidi/fixtures_extended.py`; bumped 9 → 18 px/bar. |
-| Palette | `Palette.h` | Verbatim 24-color table from `midi_to_dmx.py:PALETTE`. |
+| VST plumbing | `PluginProcessor.{h,cpp}`, `CMakeLists.txt` | Standard audio-effect shape (stereo I/O + MIDI input). `IS_MIDI_EFFECT=TRUE` did not load in Live, so we use the audio-effect shape. |
+| Rig | `Rig.h` | `constexpr` 4-bar × 18-pixel + 2-spot layout (228 channels: bars DMX 1–216, spots 217/223). |
+| Palette | `Palette.h` | 24-colour table, indexed by `pitch - paletteStart`. |
 | Held-note tracker | `MidiState.{h,cpp}` | 128-slot array indexed by pitch. O(1) noteOn/noteOff/clear, no allocations. |
-| Dynamic recipes | `Recipes.{h,cpp}` | All 12 ports (chase_up/down, ping_pong, snake, sine_wave, sparkle, breathe, sweep_up/down, strobe, kick_pulse, alt_swap). Function-pointer dispatch from pitch. |
-| Composition | `Composition.{h,cpp}` | Port of `_compute_state`. Bit-mask lookup tables, mask intersection across utility / static / dynamic layers, primary/secondary palette routing, spot RGBW with warm-white tint. Plus master-dim scaling and velocity-driven linear colour fade (`ColorFadeState`, see below). |
+| Dynamic recipes | `Recipes.{h,cpp}` | 12 recipes (chase_up/down, ping_pong, snake, sine_wave, sparkle, breathe, sweep_up/down, strobe, kick_pulse, alt_swap). Function-pointer dispatch from pitch. |
+| Composition | `Composition.{h,cpp}` | Bit-mask lookup tables, mask intersection across utility / static / dynamic layers, primary/secondary palette routing, spot RGBW with warm-white tint. Plus master-dim scaling and velocity-driven linear colour fade (`ColorFadeState`, see below). |
 | Master dims | `PluginProcessor.{h,cpp}` | Two automatable params — LED Master Dim + Spot Master Dim (0..1, shown as %). Applied inside `computeDmx` so output and on-screen preview both reflect them; MIDI-mappable in the host. |
 | Colour fade | `Composition.{h,cpp}` | Each palette's displayed colour ramps linearly toward the winning note. Fade duration from the note's velocity (hard = instant, soft = up to 3 s) → a soft "black" palette note is a slow fade-to-black. State persists across blocks; advanced by wall-clock dt so it runs even when transport is stopped. |
 | Audio-thread → GUI MIDI log | `MidiLog.{h,cpp}` | Lock-free SPSC ring (256 entries). |
-| processBlock wiring | `PluginProcessor.cpp` | Pulls PPQ + BPM from `AudioPlayHead`, stamps MIDI events to beat time, runs `computeDmx()` once per block (with master-dim values + colour-fade state + block dt), pushes 228 channels via `dmx.setChannel()`. Falls back to PPQ=0 / BPM=120 when transport isn't running (static layers still work; periodic recipes freeze). |
-| Editor | `PluginEditor.{h,cpp}` | Three-pane layout — left: master-dim knobs (custom rotary look) + MIDI log + Connect/Disconnect/Blackout + ENTTEC status; middle: visualiser; right: reserved card for the test-trigger menu (task #4). Also builds as a Standalone app for DAW-free testing. |
+| processBlock wiring | `PluginProcessor.cpp` | Pulls PPQ + BPM from `AudioPlayHead`, stamps MIDI events to beat time, runs `computeDmx()` once per block (with master-dim values + colour-fade state + block dt), pushes 228 channels via `dmx.setChannel()`. When the host transport isn't playing it advances a free-running beat clock so recipes still animate (standalone / transport-stopped preview). |
+| Editor | `PluginEditor.{h,cpp}` | Three-pane layout — left: master-dim knobs (custom rotary look) + MIDI log + Connect/Disconnect/Blackout + ENTTEC status; middle: visualiser; right: the clickable trigger menu. Also builds as a Standalone app for DAW-free testing. |
+| Trigger menu | `TriggerMenu.{h,cpp}` | Multi-column, non-scrolling reference of the whole vocabulary, each cell labelled with its MIDI note name. Cells toggle and combine; the latched set is injected into `MidiState` via lock-free atomics (`setPreviewPitches`/`applyPreview`) and previewed live. |
 | On-screen DMX preview | `DmxVisualizer.{h,cpp}` | 2 spot circles on top, then 4 vertical bars × 18 cells. Pre-rendered into a single `juce::Image`, blitted by `paint()`. Re-rasterised only when the rig footprint's 8-bit fingerprint changes. |
-| ENTTEC driver | `EnttecProDmx.{h,cpp}` | Mirror copy from `hitdmx`, namespace renamed to `hitnotedmx`. Best-effort widget handshake, raised read timeout, 700-byte RX. |
+| ENTTEC driver | `EnttecProDmx.{h,cpp}` | Self-contained ENTTEC DMX USB Pro driver (IOKit discovery + POSIX termios I/O). Best-effort widget handshake, raised read timeout, 700-byte RX. |
 
 ## How it runs end-to-end
 
@@ -103,11 +94,9 @@ host MIDI in ─► processBlock ─► MidiState.noteOn/Off
    tune the 3 s ceiling and the linear-vs-curved velocity mapping once
    play-tested with a keyboard.
 
-3. **Driver duplication.** `Source/EnttecProDmx.{h,cpp}` is a verbatim
-   copy from `hitdmx`, namespace-renamed. The connect-robustness fix
-   (`commit 1f9b783` here / `58b080f` in hitdmx) had to be applied
-   twice. Future cleanup: pull the driver into a shared static-library
-   repo that both `hitdmx` and `hitnotedmx` `FetchContent`.
+3. **Driver is self-contained (resolved).** `Source/EnttecProDmx.{h,cpp}`
+   is owned wholly by this project — no shared-source coupling to keep in
+   sync. Fixes land here and here only.
 
 4. **No real-hardware ENTTEC confirmation yet** in this development
    round. Visualiser matches the recipe semantics; the channels are
@@ -122,23 +111,23 @@ host MIDI in ─► processBlock ─► MidiState.noteOn/Off
    per-pixel functions, port the good ones to C++ alongside the
    existing 12.
 
-6. **Live's "transport stopped" UX is sharp.** `processBlock` falls
-   back to PPQ=0 / BPM=120 when no `AudioPlayHead::PositionInfo` is
-   available. Periodic recipes therefore freeze at t=0 when transport
-   is stopped while static layers (bar selectors, pixel statics, spot
-   triggers, palette colour) keep responding. That matches how
-   `lightmidi`'s rendered automation behaves when paused, so it's
-   probably the right behaviour — but worth flagging so it isn't
-   read as a bug.
+6. **Transport-stopped animation (resolved).** When the host transport
+   isn't playing, `processBlock` advances a free-running beat clock
+   (continuous from the last host PPQ) so chases/breathes keep animating
+   in the standalone and while stopped. When the transport plays again we
+   snap back to host PPQ. Note this is a deliberate divergence from
+   "freeze when paused" — recipes now always animate unless truly idle.
 
 ## Direction
 
-Tracked in the session task list; mirrored here for durability.
+Tracked in the session task list; copied here for durability.
 
 **Features in flight**
-- **Test-trigger menu** (task #4) — fill the right pane with a clickable
-  list of the whole MIDI vocabulary; clicking injects a temporary held
-  note so the visualiser previews the look.
+- **Simplify the BARS + PIXEL-ZONE vocabularies** (tasks #13/#14) — keep
+  "all" + per-bar and per-zone single notes; drop the combo notes (easy
+  to play as multiple notes). This is now the project's own vocabulary —
+  no external parity to preserve.
+- **Trigger menu: 4 columns + inline grey note name** (task #15).
 - **Velocity-controllable chase tails** (task #5) — needs velocity
   threaded into the `DynamicFn` signature (recipes currently get none).
 - **Pixel-density reduction** (task #3, experimental) — a master control
@@ -154,13 +143,11 @@ Tracked in the session task list; mirrored here for durability.
    ported to C++ alongside the existing 12.
 
 **Housekeeping / post-show**
-- **DRY the ENTTEC driver** into a shared static library (task #9);
-  tolerable mirror policy until the show ships.
 - **Confirm long-session GUI stability** (task #10); optional OpenGL
   context only if software-compositor cost ever returns.
 
-*Done:* colour fade (was deferred), master dims, 3-pane redesign, spots
-above the grid, 18 px/bar rig.
+*Done:* trigger menu + live preview, free-running preview clock, colour
+fade, master dims, 3-pane redesign, spots above the grid, 18 px/bar rig.
 
 ## How to verify after a fresh checkout
 

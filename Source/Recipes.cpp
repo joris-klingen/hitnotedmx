@@ -9,8 +9,7 @@ namespace hitnotedmx
 namespace
 {
 // Per-pixel deterministic phase offset in [0, 1) for the sparkle recipe.
-// Mirrors _sparkle_phase in midi_to_dmx.py — the constant is the Knuth
-// golden-ratio integer hash multiplier.
+// The constant is the Knuth golden-ratio integer hash multiplier.
 float sparklePhase (int barIdx, int pixel) noexcept
 {
     const std::uint32_t h =
@@ -22,8 +21,7 @@ constexpr float kTwoPi = 6.28318530717958647692f;
 }
 
 // ---- the 12 recipes ------------------------------------------------------
-// All ports mirror midi_to_dmx.py line-for-line. `t` in beats; bars are
-// 0-indexed; pixels are 1-indexed.
+// `t` in beats; bars are 0-indexed; pixels are 1-indexed.
 
 float chase_up (double t, int /*barIdx*/, int pixel, int nPix, int /*nBars*/) noexcept
 {

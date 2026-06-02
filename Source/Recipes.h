@@ -8,8 +8,7 @@ namespace hitnotedmx
 // Dynamic recipes — pure functions of (beat time, bar index, pixel
 // index) that return a per-pixel brightness mask in [0, 1].
 //
-// Mirrors the DYNAMIC_RECIPES dispatch table in
-// lightmidi/midi_to_dmx.py:
+// Dispatched by MIDI pitch:
 //
 //   pitch 24 → chase_up         pitch 30 → breathe
 //   pitch 25 → chase_down       pitch 31 → sweep_up

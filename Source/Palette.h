@@ -5,8 +5,7 @@
 namespace hitnotedmx
 {
 
-// 24-entry color palette, mirrored verbatim from
-// hitmixmididmx/lightmidi/midi_to_dmx.py:PALETTE.
+// 24-entry colour palette.
 //
 // Octaves 4-5 (MIDI 36..59) → primary palette.
 // Octaves 6-7 (MIDI 60..83) → secondary palette.

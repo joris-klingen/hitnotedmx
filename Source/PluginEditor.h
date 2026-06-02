@@ -27,10 +27,9 @@ public:
 //   - a scrolling text log of the most recent MIDI activity (drained
 //     from the lock-free MidiLog every timer tick)
 //
-// The 512-slider per-channel grid that HitDmx ships with is omitted on
-// purpose — once recipes start driving the channels there will be too
-// many of them to monitor visually, and Live can browse the parameter
-// list directly via "Configure" anyway.
+// A per-channel slider grid is omitted on purpose — once recipes drive
+// the channels there are too many to monitor visually, and Live can
+// browse the parameter list directly via "Configure" anyway.
 
 class HitNoteDmxAudioProcessorEditor  : public juce::AudioProcessorEditor,
                                         private juce::Button::Listener,
@@ -60,9 +59,8 @@ private:
     juce::TextEditor midiLogView;
     DmxVisualizer    dmxView;
 
-    // Right pane: scrollable clickable trigger reference + live preview.
-    juce::Viewport triggerViewport;
-    TriggerMenu    triggerMenu;
+    // Right pane: clickable trigger reference (toggle + combine).
+    TriggerMenu triggerMenu;
 
     // Master-dim knobs, attached to the host-automatable parameters so
     // the on-screen control, host automation, and any MIDI-mapped knob

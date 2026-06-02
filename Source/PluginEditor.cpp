@@ -70,7 +70,7 @@ void DimKnobLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int 
 HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioProcessor& p)
     : AudioProcessorEditor (&p), proc (p), dmxView (p.getDmxValues())
 {
-    setSize (880, 560);
+    setSize (1024, 640);
 
     addAndMakeVisible (connectUsbButton);
     addAndMakeVisible (disconnectButton);
@@ -117,12 +117,11 @@ HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioP
     spotDimAttach = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
         proc.getParameters(), HitNoteDmxAudioProcessor::kSpotMasterDimId, spotDimSlider);
 
-    // Right pane: trigger reference menu with press-and-hold live preview.
-    triggerViewport.setViewedComponent (&triggerMenu, false);
-    triggerViewport.setScrollBarsShown (true, false);
-    addAndMakeVisible (triggerViewport);
-    triggerMenu.onPreviewStart = [this] (int pitch) { proc.setPreview (pitch); };
-    triggerMenu.onPreviewStop  = [this]             { proc.clearPreview(); };
+    // Right pane: clickable trigger reference. Cells toggle and combine;
+    // the latched set drives the live preview.
+    addAndMakeVisible (triggerMenu);
+    triggerMenu.onSelectionChanged = [this] (const std::vector<int>& pitches)
+        { proc.setPreviewPitches (pitches); };
 
     midiLogView.setMultiLine (true, false);
     midiLogView.setReadOnly (true);
@@ -172,7 +171,7 @@ void HitNoteDmxAudioProcessorEditor::paint (juce::Graphics& g)
                     juce::Justification::centredLeft);
     };
     card (leftPaneArea,  "Controls");
-    card (rightPaneArea, "Triggers - hold to preview");
+    card (rightPaneArea, "Triggers - click to toggle / combine");
     // Middle pane is the opaque visualiser; no card needed behind it.
 }
 
@@ -184,7 +183,7 @@ void HitNoteDmxAudioProcessorEditor::resized()
     const int gap = 12;
     leftPaneArea  = area.removeFromLeft (240);
     area.removeFromLeft (gap);
-    rightPaneArea = area.removeFromRight (200);
+    rightPaneArea = area.removeFromRight (430);
     area.removeFromRight (gap);
     midPaneArea   = area;
 
@@ -222,13 +221,11 @@ void HitNoteDmxAudioProcessorEditor::resized()
     // ---- MIDDLE pane: the rig visualiser ----
     dmxView.setBounds (midPaneArea);
 
-    // ---- RIGHT pane: the clickable trigger menu (scrollable) ----
+    // ---- RIGHT pane: the clickable trigger menu (3 columns, no scroll) ----
     {
         auto rightContent = rightPaneArea.reduced (8).withTrimmedTop (16);
-        triggerViewport.setBounds (rightContent);
-        triggerMenu.setSize (triggerViewport.getMaximumVisibleWidth(),
-                             triggerMenu.preferredHeight());
-        triggerViewport.setViewPosition (0, 0);  // always start at the top
+        triggerMenu.layoutForWidth (rightContent.getWidth());
+        triggerMenu.setBounds (rightContent.withHeight (triggerMenu.preferredHeight()));
     }
 }
 

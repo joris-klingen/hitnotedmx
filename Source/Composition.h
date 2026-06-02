@@ -44,8 +44,7 @@ private:
     std::array<float, kSize> data {};
 };
 
-// Compute per-channel DMX state at the given playhead time. Mirrors
-// _compute_state in midi_to_dmx.py:
+// Compute per-channel DMX state at the given playhead time:
 //
 //   1. If the blackout pitch (84) is held, all channels are 0.
 //   2. Compute primary and secondary palette colors from active

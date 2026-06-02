@@ -6,11 +6,10 @@
 namespace hitnotedmx
 {
 
-// Per-pitch held-note tracker. The Python translator's NoteEvent list
-// was indexed by (pitch, start, end, velocity); here we only ever care
-// about which notes are CURRENTLY held — the recipes look at the live
-// set, not the historical timeline. So we collapse the state to a
-// fixed-size array indexed by pitch.
+// Per-pitch held-note tracker. We only ever care about which notes are
+// CURRENTLY held — the recipes look at the live set, not a historical
+// timeline — so the state collapses to a fixed-size array indexed by
+// pitch.
 //
 // All operations are O(1) (no allocations, no locking). Updated by the
 // audio thread inside processBlock; read by both the audio thread (to

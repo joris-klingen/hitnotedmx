@@ -8,7 +8,7 @@
 namespace hitnotedmx
 {
 
-// HITMIX_EXTENDED_RIG, mirrored from hitmixmididmx/lightmidi/fixtures_extended.py.
+// The lighting rig — physical fixtures and their DMX addresses.
 //
 // 4 RGB bars (18 pixels each, bottom-up) + 2 RGBW spots.
 //

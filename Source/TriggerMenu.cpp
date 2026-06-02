@@ -3,22 +3,32 @@
 #include "Palette.h"
 #include "Recipes.h"
 
+#include <algorithm>
+
 namespace hitnotedmx
 {
 
 namespace
 {
-constexpr int kHeaderH    = 22;
-constexpr int kRowH       = 22;
-constexpr int kSwatchCols = 6;
-constexpr int kSwatchH    = 26;
+constexpr int kHeaderH   = 16;
+constexpr int kRowH      = 22;
+constexpr int kRowCols   = 3;
+constexpr int kSwatchH   = 26;
+constexpr int kSwatchCols = 12;
 
-// Vocabulary starts that aren't exported from Composition.cpp. These
-// mirror the constants there (spots 0..3, bar selectors 4..11, pixel
-// statics 12..23); keep in sync if the vocabulary changes.
-constexpr int kSpotStart       = 0;
-constexpr int kBarSelStart     = 4;
+// Vocabulary starts not exported from Composition.cpp — mirror them here.
+constexpr int kSpotStart        = 0;
+constexpr int kBarSelStart      = 4;
 constexpr int kPixelStaticStart = 12;
+
+// Note name, C3 = note 60 (Ableton convention, matches the MIDI log).
+juce::String noteName (int pitch)
+{
+    static const char* names[] = { "C", "C#", "D", "D#", "E", "F",
+                                   "F#", "G", "G#", "A", "A#", "B" };
+    const int octave = pitch / 12 - 2;  // 60 -> C3, 0 -> C-2
+    return juce::String (names[pitch % 12]) + juce::String (octave);
+}
 
 juce::Colour paletteColour (int index)
 {
@@ -31,145 +41,121 @@ juce::Colour paletteColour (int index)
 TriggerMenu::TriggerMenu()
 {
     buildModel();
-    layoutBlocks();
 }
 
 void TriggerMenu::buildModel()
 {
     blocks.clear();
 
-    auto header = [this] (juce::String t)
+    auto rowsBlock = [this] (juce::String title, std::vector<Item> items)
     {
-        blocks.push_back ({ Block::Kind::Header, std::move (t), {}, -1, 0, 0 });
+        blocks.push_back ({ std::move (title), std::move (items), kRowCols, kRowH, false, 0, 0 });
     };
-    auto rows = [this] (std::vector<Item> items)
+    auto swatchBlock = [this] (juce::String title, int paletteStart)
     {
-        blocks.push_back ({ Block::Kind::Rows, {}, std::move (items), -1, 0, 0 });
+        std::vector<Item> items;
+        for (int i = 0; i < kPaletteSize; ++i)
+            items.push_back ({ paletteStart + i, noteName (paletteStart + i),
+                               paletteColour (i), true });
+        blocks.push_back ({ std::move (title), std::move (items), kSwatchCols, kSwatchH, true, 0, 0 });
     };
-    auto swatches = [this] (int paletteStart)
+    auto row = [] (int pitch, juce::String label) -> Item
     {
-        blocks.push_back ({ Block::Kind::Swatches, {}, {}, paletteStart, 0, 0 });
+        return { pitch, std::move (label), {}, false };
     };
 
-    header ("Spots");
-    rows ({ { kSpotStart + 0, "Spot L  warm white" },
-            { kSpotStart + 1, "Spot L  colour" },
-            { kSpotStart + 2, "Spot R  warm white" },
-            { kSpotStart + 3, "Spot R  colour" } });
+    rowsBlock ("Spots", {
+        row (kSpotStart + 0, "Spot L WW"), row (kSpotStart + 1, "Spot L col"),
+        row (kSpotStart + 2, "Spot R WW"), row (kSpotStart + 3, "Spot R col") });
 
-    header ("Bars");
-    rows ({ { kBarSelStart + 0, "All bars" },
-            { kBarSelStart + 1, "Bar 1" },
-            { kBarSelStart + 2, "Bar 2" },
-            { kBarSelStart + 3, "Bar 3" },
-            { kBarSelStart + 4, "Bar 4" },
-            { kBarSelStart + 5, "Bars 1+2" },
-            { kBarSelStart + 6, "Bars 3+4" },
-            { kBarSelStart + 7, "Bars 1+4" } });
+    rowsBlock ("Bars", {
+        row (kBarSelStart + 0, "All bars"),
+        row (kBarSelStart + 1, "Bar 1"), row (kBarSelStart + 2, "Bar 2"),
+        row (kBarSelStart + 3, "Bar 3"), row (kBarSelStart + 4, "Bar 4"),
+        row (kBarSelStart + 5, "Bars 1+2"), row (kBarSelStart + 6, "Bars 3+4"),
+        row (kBarSelStart + 7, "Bars 1+4") });
 
-    header ("Pixel zones");
-    rows ({ { kPixelStaticStart + 0,  "Zone 1" },
-            { kPixelStaticStart + 1,  "Zones 2-3" },
-            { kPixelStaticStart + 2,  "Zone 4" },
-            { kPixelStaticStart + 3,  "Zones 5-6" },
-            { kPixelStaticStart + 4,  "Zones 7-8" },
-            { kPixelStaticStart + 5,  "Zone 9" },
-            { kPixelStaticStart + 6,  "Zones 1-3" },
-            { kPixelStaticStart + 7,  "Zones 4-6" },
-            { kPixelStaticStart + 8,  "Zones 7-9" },
-            { kPixelStaticStart + 9,  "Ends (1 & 9)" },
-            { kPixelStaticStart + 10, "Odd zones" },
-            { kPixelStaticStart + 11, "Zones 2,5,8" } });
+    rowsBlock ("Pixel zones", {
+        row (kPixelStaticStart + 0,  "Zone 1"),  row (kPixelStaticStart + 1,  "Zn 2-3"),
+        row (kPixelStaticStart + 2,  "Zone 4"),  row (kPixelStaticStart + 3,  "Zn 5-6"),
+        row (kPixelStaticStart + 4,  "Zn 7-8"),  row (kPixelStaticStart + 5,  "Zone 9"),
+        row (kPixelStaticStart + 6,  "Zn 1-3"),  row (kPixelStaticStart + 7,  "Zn 4-6"),
+        row (kPixelStaticStart + 8,  "Zn 7-9"),  row (kPixelStaticStart + 9,  "Ends 1&9"),
+        row (kPixelStaticStart + 10, "Odd"),     row (kPixelStaticStart + 11, "Zn 2,5,8") });
 
-    header ("Dynamics");
-    rows ({ { kDynamicPitchStart + 0,  "Chase up" },
-            { kDynamicPitchStart + 1,  "Chase down" },
-            { kDynamicPitchStart + 2,  "Ping pong" },
-            { kDynamicPitchStart + 3,  "Snake" },
-            { kDynamicPitchStart + 4,  "Sine wave" },
-            { kDynamicPitchStart + 5,  "Sparkle" },
-            { kDynamicPitchStart + 6,  "Breathe" },
-            { kDynamicPitchStart + 7,  "Sweep up" },
-            { kDynamicPitchStart + 8,  "Sweep down" },
-            { kDynamicPitchStart + 9,  "Strobe" },
-            { kDynamicPitchStart + 10, "Kick pulse" },
-            { kDynamicPitchStart + 11, "Alt swap" } });
+    rowsBlock ("Dynamics", {
+        row (kDynamicPitchStart + 0,  "Chase up"),  row (kDynamicPitchStart + 1,  "Chase dn"),
+        row (kDynamicPitchStart + 2,  "Ping-pong"), row (kDynamicPitchStart + 3,  "Snake"),
+        row (kDynamicPitchStart + 4,  "Sine"),      row (kDynamicPitchStart + 5,  "Sparkle"),
+        row (kDynamicPitchStart + 6,  "Breathe"),   row (kDynamicPitchStart + 7,  "Sweep up"),
+        row (kDynamicPitchStart + 8,  "Sweep dn"),  row (kDynamicPitchStart + 9,  "Strobe"),
+        row (kDynamicPitchStart + 10, "Kick"),      row (kDynamicPitchStart + 11, "Alt swap") });
 
-    header ("Primary colours");
-    swatches (kPrimaryPaletteStart);
+    swatchBlock ("Primary colours",   kPrimaryPaletteStart);
+    swatchBlock ("Secondary colours", kSecondaryPaletteStart);
 
-    header ("Secondary colours");
-    swatches (kSecondaryPaletteStart);
-
-    header ("Blackout");
-    rows ({ { kBlackoutNote, "Blackout (all off)" } });
+    rowsBlock ("Blackout", { row (kBlackoutNote, "Blackout") });
 }
 
-void TriggerMenu::layoutBlocks()
+void TriggerMenu::layoutForWidth (int width)
 {
+    laidOutWidth = width;
     int y = 4;
     for (auto& b : blocks)
     {
         b.y = y;
-        switch (b.kind)
-        {
-            case Block::Kind::Header:   b.h = kHeaderH; break;
-            case Block::Kind::Rows:     b.h = static_cast<int> (b.rows.size()) * kRowH; break;
-            case Block::Kind::Swatches:
-            {
-                const int gridRows = (kPaletteSize + kSwatchCols - 1) / kSwatchCols;
-                b.h = gridRows * kSwatchH;
-                break;
-            }
-        }
-        y += b.h + 2;
+        const int gridRows = (static_cast<int> (b.items.size()) + b.cols - 1) / b.cols;
+        b.h = kHeaderH + gridRows * b.cellH;
+        y += b.h + 6;
     }
     totalHeight = y + 4;
+    setSize (width, totalHeight);
 }
 
 int TriggerMenu::pitchAt (juce::Point<int> p) const noexcept
 {
+    const int w = getWidth();
     for (const auto& b : blocks)
     {
         if (p.y < b.y || p.y >= b.y + b.h)
             continue;
+        const int gy = p.y - (b.y + kHeaderH);
+        if (gy < 0)
+            return -1;  // on the header
 
-        if (b.kind == Block::Kind::Rows)
-        {
-            const int idx = (p.y - b.y) / kRowH;
-            if (idx >= 0 && idx < static_cast<int> (b.rows.size()))
-                return b.rows[static_cast<size_t> (idx)].pitch;
-            return -1;
-        }
-        if (b.kind == Block::Kind::Swatches)
-        {
-            const int cellW = juce::jmax (1, getWidth() / kSwatchCols);
-            const int col = juce::jlimit (0, kSwatchCols - 1, p.x / cellW);
-            const int row = (p.y - b.y) / kSwatchH;
-            const int idx = row * kSwatchCols + col;
-            if (idx >= 0 && idx < kPaletteSize)
-                return b.paletteStart + idx;
-            return -1;
-        }
-        return -1;  // header
+        const int cellW = juce::jmax (1, w / b.cols);
+        const int col = juce::jlimit (0, b.cols - 1, p.x / cellW);
+        const int rowIdx = gy / b.cellH;
+        const int idx = rowIdx * b.cols + col;
+        if (idx >= 0 && idx < static_cast<int> (b.items.size()))
+            return b.items[static_cast<size_t> (idx)].pitch;
+        return -1;
     }
     return -1;
 }
 
-void TriggerMenu::setActive (int pitch)
+bool TriggerMenu::isActive (int pitch) const noexcept
 {
-    if (pitch == activePitch)
-        return;
-    activePitch = pitch;
-    repaint();
-
-    if (pitch >= 0) { if (onPreviewStart) onPreviewStart (pitch); }
-    else            { if (onPreviewStop)  onPreviewStop(); }
+    return std::find (active.begin(), active.end(), pitch) != active.end();
 }
 
-void TriggerMenu::mouseDown (const juce::MouseEvent& e) { setActive (pitchAt (e.getPosition())); }
-void TriggerMenu::mouseDrag (const juce::MouseEvent& e) { setActive (pitchAt (e.getPosition())); }
-void TriggerMenu::mouseUp   (const juce::MouseEvent&)   { setActive (-1); }
+void TriggerMenu::toggle (int pitch)
+{
+    if (pitch < 0)
+        return;
+    auto it = std::find (active.begin(), active.end(), pitch);
+    if (it != active.end()) active.erase (it);
+    else                    active.push_back (pitch);
+
+    repaint();
+    if (onSelectionChanged)
+        onSelectionChanged (active);
+}
+
+void TriggerMenu::mouseDown (const juce::MouseEvent& e)
+{
+    toggle (pitchAt (e.getPosition()));
+}
 
 void TriggerMenu::paint (juce::Graphics& g)
 {
@@ -178,50 +164,52 @@ void TriggerMenu::paint (juce::Graphics& g)
 
     for (const auto& b : blocks)
     {
-        if (b.kind == Block::Kind::Header)
-        {
-            g.setColour (juce::Colour (0xff9a9a9a));
-            g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
-            g.drawText (b.title.toUpperCase(), 8, b.y, w - 16, b.h,
-                        juce::Justification::centredLeft);
-        }
-        else if (b.kind == Block::Kind::Rows)
-        {
-            g.setFont (juce::FontOptions (12.0f));
-            for (size_t i = 0; i < b.rows.size(); ++i)
-            {
-                const auto& it = b.rows[i];
-                const int ry = b.y + static_cast<int> (i) * kRowH;
-                const auto rb = juce::Rectangle<int> (4, ry, w - 8, kRowH - 2);
-                const bool on = (it.pitch == activePitch);
+        // Section header.
+        g.setColour (juce::Colour (0xff9a9a9a));
+        g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
+        g.drawText (b.title.toUpperCase(), 6, b.y, w - 12, kHeaderH,
+                    juce::Justification::centredLeft);
 
-                g.setColour (on ? juce::Colour (0xff3a6ea5) : juce::Colour (0xff303030));
-                g.fillRoundedRectangle (rb.toFloat(), 3.0f);
-                g.setColour (on ? juce::Colours::white : juce::Colours::lightgrey);
-                g.drawText (it.label, rb.getX() + 8, rb.getY(), rb.getWidth() - 56, rb.getHeight(),
-                            juce::Justification::centredLeft);
-                g.setColour (juce::Colour (0xff707070));
-                g.setFont (juce::FontOptions (10.0f));
-                g.drawText (juce::String (it.pitch), rb.getRight() - 40, rb.getY(), 34, rb.getHeight(),
-                            juce::Justification::centredRight);
-                g.setFont (juce::FontOptions (12.0f));
-            }
-        }
-        else  // Swatches
+        const int cellW = juce::jmax (1, w / b.cols);
+        const int gridTop = b.y + kHeaderH;
+
+        for (size_t i = 0; i < b.items.size(); ++i)
         {
-            const int cellW = juce::jmax (1, w / kSwatchCols);
-            for (int idx = 0; idx < kPaletteSize; ++idx)
+            const auto& it = b.items[i];
+            const int col = static_cast<int> (i) % b.cols;
+            const int rowIdx = static_cast<int> (i) / b.cols;
+            const auto cell = juce::Rectangle<int> (col * cellW, gridTop + rowIdx * b.cellH,
+                                                    cellW, b.cellH).reduced (2, 1);
+            const bool on = isActive (it.pitch);
+
+            if (b.swatches)
             {
-                const int col = idx % kSwatchCols;
-                const int row = idx / kSwatchCols;
-                const auto cell = juce::Rectangle<int> (col * cellW, b.y + row * kSwatchH,
-                                                        cellW - 3, kSwatchH - 3);
-                g.setColour (paletteColour (idx));
+                g.setColour (it.colour);
                 g.fillRect (cell);
-
-                const bool on = (b.paletteStart + idx == activePitch);
                 g.setColour (on ? juce::Colours::white : juce::Colour (0x40ffffff));
                 g.drawRect (cell, on ? 2 : 1);
+
+                // Tiny note name, readable on both light and dark swatches.
+                const bool light = it.colour.getPerceivedBrightness() > 0.5f;
+                g.setColour (light ? juce::Colours::black.withAlpha (0.7f)
+                                   : juce::Colours::white.withAlpha (0.8f));
+                g.setFont (juce::FontOptions (8.5f));
+                g.drawText (it.label, cell, juce::Justification::centredBottom);
+            }
+            else
+            {
+                g.setColour (on ? juce::Colour (0xff3a6ea5) : juce::Colour (0xff303030));
+                g.fillRoundedRectangle (cell.toFloat(), 3.0f);
+
+                auto text = cell.reduced (6, 0);
+                g.setColour (on ? juce::Colours::white : juce::Colour (0xff8fb6dd));
+                g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
+                g.drawText (it.label, text.removeFromTop (cell.getHeight() / 2),
+                            juce::Justification::centredLeft);
+                g.setColour (on ? juce::Colours::white.withAlpha (0.85f) : juce::Colour (0xff888888));
+                g.setFont (juce::FontOptions (9.0f));
+                g.drawText (it.label.isEmpty() ? juce::String() : noteName (it.pitch),
+                            text, juce::Justification::centredLeft);
             }
         }
     }

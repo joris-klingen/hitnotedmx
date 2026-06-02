@@ -8,17 +8,19 @@
 namespace hitnotedmx
 {
 
-// A scrollable reference list of the whole MIDI trigger vocabulary —
-// spots, bar selectors, pixel-zone statics, dynamic recipes, the two
-// palette swatch grids, and blackout. Press-and-hold a row or swatch
-// (or drag across them) to preview it live on the rig visualiser; the
-// editor wires onPreviewStart/onPreviewStop to the processor's preview
-// injector. Sized taller than its viewport — drop it in a juce::Viewport.
+// A non-scrolling, multi-column reference of the whole MIDI trigger
+// vocabulary — spots, bar selectors, pixel zones, dynamic recipes, the
+// two palette swatch grids, and blackout. Each cell is labelled with its
+// MIDI note name (C3 = note 60, matching Ableton + the MIDI log).
 //
-// NOTE: the labels here mirror the vocabulary defined in Composition.cpp
-// / Recipes.h / Palette.h. Pitch *ranges* come from the exported
-// constants; the human labels are maintained by hand, so keep them in
-// sync if the vocabulary changes.
+// Cells are TOGGLES: click to latch one on, click again to release.
+// Multiple latched cells combine, so you can audition e.g. "All bars" +
+// a colour + a chase at once. onSelectionChanged fires the full latched
+// set; the editor forwards it to the processor's preview injector.
+//
+// NOTE: labels mirror the vocabulary in Composition.cpp / Recipes.h /
+// Palette.h. Pitch ranges come from exported constants; the short human
+// labels are maintained by hand — keep them in sync.
 class TriggerMenu : public juce::Component
 {
 public:
@@ -26,38 +28,36 @@ public:
 
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
-    void mouseDrag (const juce::MouseEvent&) override;
-    void mouseUp   (const juce::MouseEvent&) override;
 
-    // Total content height for the host Viewport to size us to.
     int preferredHeight() const noexcept { return totalHeight; }
+    void layoutForWidth (int width);  // recompute block geometry + height
 
-    // Called with the MIDI pitch to preview while pressed, and on release.
-    std::function<void (int pitch)> onPreviewStart;
-    std::function<void()>           onPreviewStop;
+    // Fires with the currently-latched pitches whenever the set changes.
+    std::function<void (const std::vector<int>&)> onSelectionChanged;
 
 private:
-    struct Item { int pitch; juce::String label; };
+    struct Item { int pitch; juce::String label; juce::Colour colour; bool swatch; };
 
     struct Block
     {
-        enum class Kind { Header, Rows, Swatches };
-        Kind kind;
-        juce::String  title;        // Header / section caption
-        std::vector<Item> rows;     // Rows
-        int paletteStart { -1 };    // Swatches (24 colours from kPalette)
-        int y { 0 };
-        int h { 0 };
+        juce::String      title;
+        std::vector<Item> items;
+        int  cols;
+        int  cellH;
+        bool swatches;
+        int  y { 0 };
+        int  h { 0 };
     };
 
     void buildModel();
-    void layoutBlocks();
     int  pitchAt (juce::Point<int>) const noexcept;  // -1 if none
-    void setActive (int pitch);
+    void toggle (int pitch);
+    bool isActive (int pitch) const noexcept;
 
     std::vector<Block> blocks;
+    std::vector<int>   active;   // latched pitches
     int totalHeight { 0 };
-    int activePitch { -1 };   // currently previewing / highlighted
+    int laidOutWidth { 0 };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TriggerMenu)
 };

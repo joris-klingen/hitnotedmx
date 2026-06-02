@@ -4,6 +4,7 @@
 
 #include <array>
 #include <atomic>
+#include <vector>
 
 #include "Composition.h"
 #include "EnttecProDmx.h"
@@ -13,16 +14,11 @@
 namespace hitnotedmx
 {
 
-// The MIDI-driven sibling of HitDmx. Accepts MIDI input, exposes the
-// same 512 host-automatable DMX-channel parameters that HitDmx does
-// (so manual control + Live automation still work), and — in later
-// commits — runs note-triggered chase/breathe/sparkle/etc. recipes
-// that *write into those same parameters* so the GUI and Live see the
-// computed values.
-//
-// In this initial skeleton commit, processBlock only logs the MIDI
-// notes it receives into a lock-free MidiLog ring so the GUI can
-// confirm we're getting MIDI from the host. No recipes yet.
+// MIDI-driven DMX lighting controller. Accepts MIDI input, exposes 512
+// host-automatable DMX-channel parameters (so manual control + Live
+// automation still work), and runs note-triggered chase/breathe/sparkle/
+// etc. recipes whose per-block output is pushed to the ENTTEC driver and
+// mirrored in the on-screen visualiser.
 
 class HitNoteDmxAudioProcessor  : public juce::AudioProcessor,
                                   private juce::AudioProcessorValueTreeState::Listener
@@ -71,12 +67,12 @@ public:
 
     static juce::String paramIdForChannel (int channel1to512);
 
-    // Live preview (GUI thread → audio thread). setPreview holds the given
-    // trigger pitch — plus a default primary/secondary colour for non-
-    // colour triggers so bars/pixels/dynamics are actually visible — until
-    // clearPreview. Injected into MidiState each block via lock-free atomics.
-    void setPreview (int pitch) noexcept;
-    void clearPreview() noexcept;
+    // Live preview (GUI thread → audio thread). Holds the given SET of
+    // trigger pitches (toggle menu) until replaced. If the set contains
+    // structural triggers but no palette colour, a default primary +
+    // secondary colour is added so bars/pixels/dynamics are visible.
+    // Injected into MidiState each block via lock-free atomics.
+    void setPreviewPitches (const std::vector<int>& pitches);
 
     // Automatable master-dim parameter IDs (0..1). Exposed so the editor
     // can attach on-screen knobs to the same parameters the host sees.
@@ -105,13 +101,14 @@ private:
     ColorFadeState colorFade;  // persists colour-fade state across blocks
 
     // Preview injection. previewPitch[] is written by the GUI thread and
-    // read on the audio thread (slot 0 = the trigger, 1/2 = default
-    // colours); -1 = empty. appliedPreview is audio-thread-only bookkeeping
-    // so we noteOn/noteOff only on change.
-    std::array<std::atomic<int>, 3> previewPitch;
-    std::array<int, 3>              appliedPreview { -1, -1, -1 };
+    // read on the audio thread; -1 = empty slot. appliedPreview is
+    // audio-thread-only bookkeeping so we noteOn/noteOff only on change.
+    static constexpr int kMaxPreview = 48;
+    std::array<std::atomic<int>, kMaxPreview> previewPitch;
+    std::array<int, kMaxPreview>              appliedPreview;
 
     double sampleRate_ { 48000.0 };
+    double freeRunBeats { 0.0 };  // beat clock used when transport isn't playing
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (HitNoteDmxAudioProcessor)
 };

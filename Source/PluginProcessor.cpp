@@ -67,6 +67,7 @@ HitNoteDmxAudioProcessor::HitNoteDmxAudioProcessor()
 
     for (auto& p : previewPitch)
         p.store (-1);
+    appliedPreview.fill (-1);
 }
 
 HitNoteDmxAudioProcessor::~HitNoteDmxAudioProcessor()
@@ -82,16 +83,17 @@ void HitNoteDmxAudioProcessor::prepareToPlay (double sampleRate, int /*samplesPe
     sampleRate_ = sampleRate > 0 ? sampleRate : 48000.0;
     midiState.clear();
     colorFade.reset();
+    freeRunBeats = 0.0;
 }
 
 void HitNoteDmxAudioProcessor::releaseResources() {}
 
 bool HitNoteDmxAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
-    // Same rule as HitDmx: mono or stereo on the main bus, input matches
-    // output. We don't process the audio at all but we accept these
-    // layouts so the host can place the plugin on an audio-style chain
-    // (which is how DMXIS-style "drives DMX from MIDI" plugins live).
+    // Mono or stereo on the main bus, input matches output. We don't
+    // process the audio at all, but accepting these layouts lets the host
+    // place the plugin on an audio-style chain (the usual shape for a
+    // "drive DMX from MIDI" effect).
     const auto& mainOut = layouts.getMainOutputChannelSet();
     if (mainOut != juce::AudioChannelSet::mono() && mainOut != juce::AudioChannelSet::stereo())
         return false;
@@ -108,20 +110,39 @@ void HitNoteDmxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     //    and feed the composition with a beat-time `t`.
     //
     //    JUCE 8's AudioPlayHead::getPosition() returns Optional<PositionInfo>.
-    //    Hosts that aren't a DAW (or DAWs with transport stopped) may
-    //    not supply BPM or PPQ; fall back to sensible defaults so static
-    //    layers (bar selectors, pixel statics, spot triggers) still work.
-    double blockStartBeat = 0.0;
+    //    When the host transport is *playing* we follow its PPQ so recipes
+    //    stay locked to the song. Otherwise (standalone, or transport
+    //    stopped) we advance a free-running beat clock so chases/breathes
+    //    still animate — essential for previewing without a DAW rolling.
     double bpm = 120.0;
+    bool   playing = false;
+    double hostPpq = 0.0;
+    bool   haveHostPpq = false;
     if (auto* ph = getPlayHead())
     {
         if (auto pos = ph->getPosition())
         {
-            if (auto p = pos->getPpqPosition()) blockStartBeat = *p;
-            if (auto b = pos->getBpm())         bpm = *b;
+            playing = pos->getIsPlaying();
+            if (auto p = pos->getPpqPosition()) { hostPpq = *p; haveHostPpq = true; }
+            if (auto b = pos->getBpm())         { bpm = *b; }
         }
     }
     const double beatsPerSample = (bpm / 60.0) / sampleRate_;
+    const double dtBeats = beatsPerSample * static_cast<double> (buffer.getNumSamples());
+
+    double blockStartBeat;
+    if (playing && haveHostPpq)
+    {
+        // Locked to the host; keep the free-run clock in step so it
+        // continues smoothly from here when the transport stops.
+        blockStartBeat = hostPpq;
+        freeRunBeats   = hostPpq;
+    }
+    else
+    {
+        blockStartBeat = freeRunBeats;
+        freeRunBeats  += dtBeats;
+    }
 
     // 2. Update MidiState (and the GUI's MidiLog) from every event the
     //    host gave us this block.
@@ -167,8 +188,7 @@ void HitNoteDmxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     computeDmx (midiState, blockStartBeat, dmxValues, ledDim, spotDim, &colorFade, dtSeconds);
 
     // 4. Push every rig channel out to the ENTTEC widget. The driver
-    //    holds a CriticalSection internally; setChannel is the same
-    //    routine HitDmx calls from its parameter-change listener.
+    //    holds a CriticalSection internally.
     const auto* const v = dmxValues.raw();
     for (int ch1 = 1; ch1 <= kRigChannels; ++ch1)
     {
@@ -196,35 +216,46 @@ void HitNoteDmxAudioProcessor::setStateInformation (const void* data, int sizeIn
             parameters.replaceState (juce::ValueTree::fromXml (*xml));
 }
 
-void HitNoteDmxAudioProcessor::setPreview (int pitch) noexcept
+void HitNoteDmxAudioProcessor::setPreviewPitches (const std::vector<int>& pitches)
 {
-    const bool isColour   = (pitch >= kPrimaryPaletteStart && pitch < kBlackoutNote);
-    const bool isBlackout = (pitch == kBlackoutNote);
-    const bool needsColour = (pitch >= 0 && ! isColour && ! isBlackout);
+    // Build the effective hold set, adding a default primary + secondary
+    // colour if the user latched structural triggers but no palette colour
+    // (otherwise bars/pixels/dynamics would render black).
+    std::array<int, kMaxPreview> next;
+    next.fill (-1);
+    int n = 0;
 
-    previewPitch[0].store (pitch);
-    previewPitch[1].store (needsColour ? kPrimaryPaletteStart   + 22 : -1);  // cool white
-    previewPitch[2].store (needsColour ? kSecondaryPaletteStart + 22 : -1);
-}
+    bool hasColour = false, hasStructural = false;
+    for (int p : pitches)
+    {
+        if (p >= kPrimaryPaletteStart && p < kBlackoutNote) hasColour = true;
+        else if (p >= 0 && p < kPrimaryPaletteStart)        hasStructural = true;
+        if (n < kMaxPreview) next[static_cast<size_t> (n++)] = p;
+    }
+    if (hasStructural && ! hasColour)
+    {
+        if (n < kMaxPreview) next[static_cast<size_t> (n++)] = kPrimaryPaletteStart   + 22;  // cool white
+        if (n < kMaxPreview) next[static_cast<size_t> (n++)] = kSecondaryPaletteStart + 22;
+    }
 
-void HitNoteDmxAudioProcessor::clearPreview() noexcept
-{
-    for (auto& p : previewPitch)
-        p.store (-1);
+    for (int i = 0; i < kMaxPreview; ++i)
+        previewPitch[static_cast<size_t> (i)].store (next[static_cast<size_t> (i)]);
 }
 
 void HitNoteDmxAudioProcessor::applyPreview (double atBeat) noexcept
 {
-    const std::array<int, 3> want { previewPitch[0].load(),
-                                    previewPitch[1].load(),
-                                    previewPitch[2].load() };
+    std::array<int, kMaxPreview> want;
+    for (int i = 0; i < kMaxPreview; ++i)
+        want[static_cast<size_t> (i)] = previewPitch[static_cast<size_t> (i)].load();
 
-    auto contains = [] (const std::array<int, 3>& set, int v)
+    auto contains = [] (const std::array<int, kMaxPreview>& set, int v)
     {
-        return v >= 0 && (set[0] == v || set[1] == v || set[2] == v);
+        if (v < 0) return false;
+        for (int s : set) if (s == v) return true;
+        return false;
     };
 
-    // Release previously-held preview notes that are no longer wanted.
+    // Release previously-held preview notes no longer wanted.
     for (int a : appliedPreview)
         if (a >= 0 && ! contains (want, a))
             midiState.noteOff (static_cast<std::uint8_t> (a));

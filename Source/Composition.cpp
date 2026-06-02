@@ -10,15 +10,14 @@
 namespace hitnotedmx
 {
 
-// MIDI vocabulary — these mirror the SPOT_NOTES / BAR_SELECTORS /
-// PIXEL_STATICS dicts in midi_to_dmx.py exactly. We compile them down
-// into per-pitch lookup tables for O(1) audio-thread access.
+// MIDI vocabulary — compiled into per-pitch lookup tables for O(1)
+// audio-thread access.
 
 namespace
 {
 constexpr int kVelocityThreshold = 64;
 
-// Warm-white tint for the singer spots, matching midi_to_dmx.py.
+// Warm-white tint for the singer spots.
 constexpr float kSpotWarmR = 0.4f;
 constexpr float kSpotWarmG = 0.15f;
 
@@ -128,9 +127,7 @@ inline constexpr bool isSecondaryColorPitch (int p)
 //
 // The most-recently-started held note in the palette range wins. We also
 // report the winning pitch + velocity so the fade stage (see advanceFade)
-// can detect colour changes and derive the per-change fade duration. The
-// offline Python crossfades across min(a.end, b.end); the live fade below
-// is the no-future-knowledge equivalent.
+// can detect colour changes and derive the per-change fade duration.
 struct ColorPick { float r, g, b, intensity; int pitch; std::uint8_t velocity; };
 
 ColorPick pickColor (const MidiState& state,
