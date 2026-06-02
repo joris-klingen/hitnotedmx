@@ -89,6 +89,7 @@ private:
     MidiLog    midiLog;
     MidiState  midiState;
     DmxValues  dmxValues;
+    ColorFadeState colorFade;  // persists colour-fade state across blocks
 
     double sampleRate_ { 48000.0 };
 

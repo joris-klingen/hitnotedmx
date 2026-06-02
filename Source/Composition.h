@@ -71,7 +71,35 @@ private:
 // here — rather than at the driver push — means the on-screen preview
 // reflects the masters too. These map to host-automatable parameters so
 // a MIDI controller knob can ride them live.
+//
+// Colour fades: the live model can't see future note end-times, so
+// instead of the offline crossfade we ramp each palette's displayed
+// colour linearly toward the current winner. When the winning colour
+// note changes, a fresh fade starts from the colour on screen; the fade
+// duration comes from that note's velocity (hard = instant, soft =
+// slow), which makes a soft "black" palette note a slow fade-to-black.
+// State persists across blocks in `fade` (owned by the processor) and is
+// advanced by `dtSeconds` (this block's wall-clock duration). Pass
+// fade == nullptr to keep the old snap behaviour.
+struct ColorFadeState
+{
+    struct Channel
+    {
+        float  cur[3]    { 0.0f, 0.0f, 0.0f };  // displayed RGB (post-intensity)
+        float  start[3]  { 0.0f, 0.0f, 0.0f };  // RGB when the current fade began
+        double durSec    { 0.0 };               // length of the current fade
+        double elapsed   { 0.0 };               // time into the current fade
+        int    lastPitch { -1 };                // winning pitch last block (-1 = none)
+    };
+
+    Channel primary;
+    Channel secondary;
+
+    void reset() noexcept { primary = Channel {}; secondary = Channel {}; }
+};
+
 void computeDmx (const MidiState& state, double tBeats, DmxValues& outValues,
-                 float ledMasterDim = 1.0f, float spotMasterDim = 1.0f) noexcept;
+                 float ledMasterDim = 1.0f, float spotMasterDim = 1.0f,
+                 ColorFadeState* fade = nullptr, double dtSeconds = 0.0) noexcept;
 
 }  // namespace hitnotedmx

@@ -126,13 +126,12 @@ inline constexpr bool isSecondaryColorPitch (int p)
 
 // ---- color picker --------------------------------------------------------
 //
-// SIMPLIFICATION: the Python translator crossfades the two most-recent
-// overlapping color notes linearly across `min(a.end, b.end)`. In the
-// live model we don't know future end times, so we just use the most-
-// recently started note as the winner. If we ever want a fade-in
-// behaviour we can use (currentBeat - mostRecent.startBeat) as the
-// fade-progress against a configurable window. For v1, snap.
-struct ColorPick { float r, g, b, intensity; };
+// The most-recently-started held note in the palette range wins. We also
+// report the winning pitch + velocity so the fade stage (see advanceFade)
+// can detect colour changes and derive the per-change fade duration. The
+// offline Python crossfades across min(a.end, b.end); the live fade below
+// is the no-future-knowledge equivalent.
+struct ColorPick { float r, g, b, intensity; int pitch; std::uint8_t velocity; };
 
 ColorPick pickColor (const MidiState& state,
                      int paletteStart,
@@ -155,35 +154,91 @@ ColorPick pickColor (const MidiState& state,
     });
 
     if (mostRecentPitch < 0)
-        return { 0.0f, 0.0f, 0.0f, 0.0f };
+        return { 0.0f, 0.0f, 0.0f, 0.0f, -1, 0 };
 
     const auto& c = kPalette[mostRecentPitch - paletteStart];
     const float intensity = static_cast<float> (mostRecentVel) / 127.0f;
-    return { c.r, c.g, c.b, intensity };
+    return { c.r, c.g, c.b, intensity, mostRecentPitch, mostRecentVel };
+}
+
+// Longest linear colour fade, reached at velocity 1; velocity 127 snaps.
+constexpr double kMaxColorFadeSec = 3.0;
+
+// Advance one palette channel's displayed colour one block toward its
+// target. A change in the winning pitch starts a fresh fade from the
+// colour currently on screen, with a duration set by the new note's
+// velocity. When nothing is held (pitch < 0) the change is instant, so a
+// plain release snaps to black — use the black palette note to fade out.
+void advanceFade (ColorFadeState::Channel& c,
+                  float tr, float tg, float tb,
+                  int pitch, std::uint8_t vel, double dt) noexcept
+{
+    if (pitch != c.lastPitch)
+    {
+        c.lastPitch = pitch;
+        c.start[0] = c.cur[0];
+        c.start[1] = c.cur[1];
+        c.start[2] = c.cur[2];
+        c.elapsed  = 0.0;
+        c.durSec   = (pitch < 0)
+                   ? 0.0
+                   : kMaxColorFadeSec * (1.0 - static_cast<double> (vel) / 127.0);
+    }
+
+    c.elapsed += dt;
+    const double p = (c.durSec <= 0.0)
+                   ? 1.0
+                   : std::clamp (c.elapsed / c.durSec, 0.0, 1.0);
+    const float fp = static_cast<float> (p);
+    c.cur[0] = c.start[0] + (tr - c.start[0]) * fp;
+    c.cur[1] = c.start[1] + (tg - c.start[1]) * fp;
+    c.cur[2] = c.start[2] + (tb - c.start[2]) * fp;
 }
 
 }  // namespace
 
 
 void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
-                 float ledMasterDim, float spotMasterDim) noexcept
+                 float ledMasterDim, float spotMasterDim,
+                 ColorFadeState* fade, double dtSeconds) noexcept
 {
     out.clear();
 
     // ---- 1. Blackout short-circuit --------------------------------------
     if (state.isActive (static_cast<std::uint8_t> (kBlackoutNote)))
+    {
+        // Hard kill — also collapse any in-flight fade so releasing the
+        // blackout note resumes from black rather than mid-fade.
+        if (fade != nullptr)
+            fade->reset();
         return;
+    }
 
     // ---- 2. Palettes -----------------------------------------------------
     const auto primaryC   = pickColor (state, kPrimaryPaletteStart,   kSecondaryPaletteStart);
     const auto secondaryC = pickColor (state, kSecondaryPaletteStart, kBlackoutNote);
 
-    const float priR = primaryC.r   * primaryC.intensity;
-    const float priG = primaryC.g   * primaryC.intensity;
-    const float priB = primaryC.b   * primaryC.intensity;
-    const float secR = secondaryC.r * secondaryC.intensity;
-    const float secG = secondaryC.g * secondaryC.intensity;
-    const float secB = secondaryC.b * secondaryC.intensity;
+    // Target colours (palette colour scaled by note velocity = intensity).
+    const float tPriR = primaryC.r   * primaryC.intensity;
+    const float tPriG = primaryC.g   * primaryC.intensity;
+    const float tPriB = primaryC.b   * primaryC.intensity;
+    const float tSecR = secondaryC.r * secondaryC.intensity;
+    const float tSecG = secondaryC.g * secondaryC.intensity;
+    const float tSecB = secondaryC.b * secondaryC.intensity;
+
+    float priR = tPriR, priG = tPriG, priB = tPriB;
+    float secR = tSecR, secG = tSecG, secB = tSecB;
+
+    // Linear velocity-driven fade toward the targets (snap if no state).
+    if (fade != nullptr)
+    {
+        advanceFade (fade->primary,   tPriR, tPriG, tPriB,
+                     primaryC.pitch,   primaryC.velocity,   dtSeconds);
+        advanceFade (fade->secondary, tSecR, tSecG, tSecB,
+                     secondaryC.pitch, secondaryC.velocity, dtSeconds);
+        priR = fade->primary.cur[0];   priG = fade->primary.cur[1];   priB = fade->primary.cur[2];
+        secR = fade->secondary.cur[0]; secG = fade->secondary.cur[1]; secB = fade->secondary.cur[2];
+    }
 
     // ---- 3. Bar layer ----------------------------------------------------
     // For each bar, "highest-velocity utility note touching that bar wins

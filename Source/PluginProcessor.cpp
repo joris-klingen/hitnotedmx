@@ -72,6 +72,7 @@ void HitNoteDmxAudioProcessor::prepareToPlay (double sampleRate, int /*samplesPe
 {
     sampleRate_ = sampleRate > 0 ? sampleRate : 48000.0;
     midiState.clear();
+    colorFade.reset();
 }
 
 void HitNoteDmxAudioProcessor::releaseResources() {}
@@ -150,7 +151,8 @@ void HitNoteDmxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     //    and computing once keeps work bounded.
     const float ledDim  = ledMasterDimParam  != nullptr ? ledMasterDimParam->load()  : 1.0f;
     const float spotDim = spotMasterDimParam != nullptr ? spotMasterDimParam->load() : 1.0f;
-    computeDmx (midiState, blockStartBeat, dmxValues, ledDim, spotDim);
+    const double dtSeconds = static_cast<double> (buffer.getNumSamples()) / sampleRate_;
+    computeDmx (midiState, blockStartBeat, dmxValues, ledDim, spotDim, &colorFade, dtSeconds);
 
     // 4. Push every rig channel out to the ENTTEC widget. The driver
     //    holds a CriticalSection internally; setChannel is the same
