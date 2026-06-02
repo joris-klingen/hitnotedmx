@@ -14,10 +14,63 @@ juce::String midiNoteName (juce::uint8 pitch)
 }
 }
 
+void DimKnobLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int width,
+                                           int height, float sliderPos,
+                                           float rotaryStartAngle, float rotaryEndAngle,
+                                           juce::Slider& s)
+{
+    auto bounds = juce::Rectangle<float> (static_cast<float> (x), static_cast<float> (y),
+                                          static_cast<float> (width), static_cast<float> (height))
+                      .reduced (4.0f);
+    const auto centre = bounds.getCentre();
+    const float radius = juce::jmin (bounds.getWidth(), bounds.getHeight()) / 2.0f;
+    const float lineW  = juce::jmax (3.0f, radius * 0.18f);
+    const float arcR   = radius - lineW * 0.5f;
+    const float angle  = rotaryStartAngle + sliderPos * (rotaryEndAngle - rotaryStartAngle);
+    const auto  accent = s.findColour (juce::Slider::rotarySliderFillColourId);
+
+    // Background track.
+    juce::Path track;
+    track.addCentredArc (centre.x, centre.y, arcR, arcR, 0.0f,
+                         rotaryStartAngle, rotaryEndAngle, true);
+    g.setColour (juce::Colour (0xff3a3a3a));
+    g.strokePath (track, juce::PathStrokeType (lineW, juce::PathStrokeType::curved,
+                                               juce::PathStrokeType::rounded));
+
+    // Filled value arc.
+    if (sliderPos > 0.0f)
+    {
+        juce::Path value;
+        value.addCentredArc (centre.x, centre.y, arcR, arcR, 0.0f,
+                             rotaryStartAngle, angle, true);
+        g.setColour (accent);
+        g.strokePath (value, juce::PathStrokeType (lineW, juce::PathStrokeType::curved,
+                                                   juce::PathStrokeType::rounded));
+    }
+
+    // Knob body with a subtle radial shade.
+    const float bodyR = radius - lineW - 2.0f;
+    g.setGradientFill (juce::ColourGradient (juce::Colour (0xff343434), centre.x, centre.y - bodyR,
+                                             juce::Colour (0xff202020), centre.x, centre.y + bodyR,
+                                             false));
+    g.fillEllipse (centre.x - bodyR, centre.y - bodyR, bodyR * 2.0f, bodyR * 2.0f);
+    g.setColour (accent.withAlpha (0.5f));
+    g.drawEllipse (centre.x - bodyR, centre.y - bodyR, bodyR * 2.0f, bodyR * 2.0f, 1.0f);
+
+    // Pointer.
+    juce::Path pointer;
+    const float thick = juce::jmax (2.0f, bodyR * 0.14f);
+    const float len   = bodyR * 0.82f;
+    pointer.addRoundedRectangle (-thick * 0.5f, -len, thick, len * 0.62f, thick * 0.5f);
+    pointer.applyTransform (juce::AffineTransform::rotation (angle).translated (centre.x, centre.y));
+    g.setColour (juce::Colours::white);
+    g.fillPath (pointer);
+}
+
 HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioProcessor& p)
     : AudioProcessorEditor (&p), proc (p), dmxView (p.getDmxValues())
 {
-    setSize (720, 660);
+    setSize (880, 560);
 
     addAndMakeVisible (connectUsbButton);
     addAndMakeVisible (disconnectButton);
@@ -32,6 +85,37 @@ HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioP
     addAndMakeVisible (deviceStatusLabel);
 
     addAndMakeVisible (dmxView);
+
+    // Master-dim knobs (shown 0..100%), attached to the automatable params.
+    auto setUpDimSlider = [this] (juce::Slider& s, juce::Label& lab,
+                                  const juce::String& text, juce::Colour accent)
+    {
+        s.setLookAndFeel (&knobLnf);
+        s.setColour (juce::Slider::rotarySliderFillColourId, accent);
+        s.setColour (juce::Slider::textBoxTextColourId, juce::Colours::white);
+        s.setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+        s.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 64, 18);
+
+        // Display as a percentage rather than 0.00..1.00.
+        s.textFromValueFunction = [] (double v)
+            { return juce::String (juce::roundToInt (v * 100.0)) + "%"; };
+        s.valueFromTextFunction = [] (const juce::String& t)
+            { return t.getDoubleValue() / 100.0; };
+        addAndMakeVisible (s);
+
+        lab.setText (text, juce::dontSendNotification);
+        lab.setJustificationType (juce::Justification::centred);
+        lab.setColour (juce::Label::textColourId, juce::Colours::white);
+        lab.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+        addAndMakeVisible (lab);
+    };
+    setUpDimSlider (ledDimSlider,  ledDimLabel,  "LED DIM",  juce::Colour (0xff39c6c0));
+    setUpDimSlider (spotDimSlider, spotDimLabel, "SPOT DIM", juce::Colour (0xfff2a93b));
+
+    ledDimAttach = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
+        proc.getParameters(), HitNoteDmxAudioProcessor::kLedMasterDimId, ledDimSlider);
+    spotDimAttach = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
+        proc.getParameters(), HitNoteDmxAudioProcessor::kSpotMasterDimId, spotDimSlider);
 
     midiLogView.setMultiLine (true, false);
     midiLogView.setReadOnly (true);
@@ -55,39 +139,82 @@ HitNoteDmxAudioProcessorEditor::~HitNoteDmxAudioProcessorEditor()
     connectUsbButton.removeListener (this);
     disconnectButton.removeListener (this);
     blackoutButton.removeListener (this);
+    ledDimSlider.setLookAndFeel (nullptr);
+    spotDimSlider.setLookAndFeel (nullptr);
 }
 
 void HitNoteDmxAudioProcessorEditor::paint (juce::Graphics& g)
 {
-    g.fillAll (juce::Colour (0xff202020));
+    g.fillAll (juce::Colour (0xff181818));
+
+    // App title.
     g.setColour (juce::Colours::white);
     g.setFont (juce::FontOptions (16.0f, juce::Font::bold));
-    g.drawText ("HitNoteDmx", 12, 8, getWidth() - 24, 24,
+    g.drawText ("HitNoteDmx", 12, 6, getWidth() - 24, 22,
                 juce::Justification::centredLeft);
+
+    // Pane cards.
+    auto card = [&g] (juce::Rectangle<int> r, const juce::String& title)
+    {
+        if (r.isEmpty()) return;
+        g.setColour (juce::Colour (0xff262626));
+        g.fillRoundedRectangle (r.toFloat(), 6.0f);
+        g.setColour (juce::Colour (0xff7a7a7a));
+        g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
+        g.drawText (title.toUpperCase(), r.getX() + 10, r.getY() + 6, r.getWidth() - 20, 12,
+                    juce::Justification::centredLeft);
+    };
+    card (leftPaneArea,  "Controls");
+    card (rightPaneArea, "Triggers");
+    // Middle pane is the opaque visualiser; no card needed behind it.
 }
 
 void HitNoteDmxAudioProcessorEditor::resized()
 {
     auto area = getLocalBounds().reduced (12);
-    area.removeFromTop (28);  // title bar painted in paint()
+    area.removeFromTop (24);  // app-title bar painted in paint()
 
-    auto buttonRow = area.removeFromTop (32);
-    auto buttonWidth = (buttonRow.getWidth() - 16) / 3;
-    connectUsbButton.setBounds (buttonRow.removeFromLeft (buttonWidth));
-    buttonRow.removeFromLeft (8);
-    disconnectButton.setBounds (buttonRow.removeFromLeft (buttonWidth));
-    buttonRow.removeFromLeft (8);
-    blackoutButton.setBounds (buttonRow.removeFromLeft (buttonWidth));
+    const int gap = 12;
+    leftPaneArea  = area.removeFromLeft (240);
+    area.removeFromLeft (gap);
+    rightPaneArea = area.removeFromRight (200);
+    area.removeFromRight (gap);
+    midPaneArea   = area;
 
-    area.removeFromTop (8);
-    deviceStatusLabel.setBounds (area.removeFromTop (22));
-    area.removeFromTop (8);
+    // Content insets inside each card (leave room for the card title).
+    auto leftContent  = leftPaneArea.reduced (10).withTrimmedTop (14);
+    auto rightContent = rightPaneArea.reduced (10).withTrimmedTop (14);
 
-    // Bottom half = MIDI log (compact). Top half = the DMX visualiser.
-    auto logArea = area.removeFromBottom (90);
-    dmxView.setBounds (area);
-    area.removeFromBottom (8);
-    midiLogView.setBounds (logArea);
+    // ---- LEFT pane: master-dim knobs (top) + MIDI log (fills rest) ----
+    {
+        auto knobRow = leftContent.removeFromTop (108);
+        const int colW = knobRow.getWidth() / 2;
+        auto place = [] (juce::Rectangle<int> col, juce::Label& lab, juce::Slider& s)
+        {
+            lab.setBounds (col.removeFromTop (16));
+            s.setBounds (col);
+        };
+        place (knobRow.removeFromLeft (colW), ledDimLabel,  ledDimSlider);
+        place (knobRow,                       spotDimLabel, spotDimSlider);
+
+        leftContent.removeFromTop (8);
+        midiLogView.setBounds (leftContent);
+    }
+
+    // ---- MIDDLE pane: the rig visualiser ----
+    dmxView.setBounds (midPaneArea);
+
+    // ---- RIGHT pane: connection + test controls ----
+    {
+        connectUsbButton.setBounds (rightContent.removeFromTop (30));
+        rightContent.removeFromTop (8);
+        disconnectButton.setBounds (rightContent.removeFromTop (30));
+        rightContent.removeFromTop (8);
+        blackoutButton.setBounds (rightContent.removeFromTop (30));
+        rightContent.removeFromTop (12);
+        deviceStatusLabel.setBounds (rightContent.removeFromTop (40));
+        // Remaining space is reserved for the clickable test-sound menu (task #4).
+    }
 }
 
 void HitNoteDmxAudioProcessorEditor::buttonClicked (juce::Button* b)

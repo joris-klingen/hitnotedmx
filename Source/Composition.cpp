@@ -165,7 +165,8 @@ ColorPick pickColor (const MidiState& state,
 }  // namespace
 
 
-void computeDmx (const MidiState& state, double tBeats, DmxValues& out) noexcept
+void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
+                 float ledMasterDim, float spotMasterDim) noexcept
 {
     out.clear();
 
@@ -333,9 +334,9 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out) noexcept
             const float cg = usePri ? priG : secG;
             const float cb = usePri ? priB : secB;
 
-            out.set (channels[0], cr * brightness);
-            out.set (channels[1], cg * brightness);
-            out.set (channels[2], cb * brightness);
+            out.set (channels[0], cr * brightness * ledMasterDim);
+            out.set (channels[1], cg * brightness * ledMasterDim);
+            out.set (channels[2], cb * brightness * ledMasterDim);
         }
     }
 
@@ -359,7 +360,7 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out) noexcept
             g = std::max (g, secG);
             b = std::max (b, secB);
         }
-        out.set (spot.dimmer(), dim);
+        out.set (spot.dimmer(), dim * spotMasterDim);
         out.set (spot.red(),    r);
         out.set (spot.green(),  g);
         out.set (spot.blue(),   b);

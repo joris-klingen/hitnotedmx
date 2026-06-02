@@ -63,8 +63,15 @@ private:
 //
 // `outValues` is cleared at entry; bars and spots are fully written
 // for every audio block (DMX channels never inherit stale state from
-// a previous block). Channels outside the rig footprint (>= 121) are
-// untouched.
-void computeDmx (const MidiState& state, double tBeats, DmxValues& outValues) noexcept;
+// a previous block). Channels outside the rig footprint are untouched.
+//
+// `ledMasterDim` (0..1) scales every bar pixel's RGB output; the spot
+// fixtures' master intensity (their dimmer channel) is scaled by
+// `spotMasterDim`. Both default to 1.0 (no attenuation). Applying them
+// here — rather than at the driver push — means the on-screen preview
+// reflects the masters too. These map to host-automatable parameters so
+// a MIDI controller knob can ride them live.
+void computeDmx (const MidiState& state, double tBeats, DmxValues& outValues,
+                 float ledMasterDim = 1.0f, float spotMasterDim = 1.0f) noexcept;
 
 }  // namespace hitnotedmx

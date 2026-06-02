@@ -28,7 +28,7 @@ juce_add_plugin(HitNoteDmx
     BUNDLE_ID                   "com.hitdmx.HitNoteDmx"
     PLUGIN_MANUFACTURER_CODE    "HtDx"
     PLUGIN_CODE                 "HnDm"
-    FORMATS                     VST3
+    FORMATS                     VST3 Standalone
     PRODUCT_NAME                "HitNoteDmx"
     DESCRIPTION                 "MIDI-driven DMX-512 lighting controller (VST3)"
     IS_SYNTH                    FALSE

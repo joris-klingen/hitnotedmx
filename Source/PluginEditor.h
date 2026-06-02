@@ -9,6 +9,18 @@
 namespace hitnotedmx
 {
 
+// Custom rotary look for the master-dim knobs: a dark body with a
+// coloured value arc and a white pointer. The fill colour is read per
+// slider from rotarySliderFillColourId, so each knob can be tinted
+// differently (LEDs vs spots).
+class DimKnobLookAndFeel : public juce::LookAndFeel_V4
+{
+public:
+    void drawRotarySlider (juce::Graphics&, int x, int y, int width, int height,
+                           float sliderPos, float rotaryStartAngle,
+                           float rotaryEndAngle, juce::Slider&) override;
+};
+
 // Stripped-down editor for the skeleton commit. Shows:
 //   - the ENTTEC USB Pro connect / disconnect / blackout buttons
 //   - a scrolling text log of the most recent MIDI activity (drained
@@ -47,6 +59,19 @@ private:
     juce::TextEditor midiLogView;
     DmxVisualizer    dmxView;
 
+    // Master-dim knobs, attached to the host-automatable parameters so
+    // the on-screen control, host automation, and any MIDI-mapped knob
+    // all stay in sync.
+    juce::Slider ledDimSlider  { juce::Slider::RotaryHorizontalVerticalDrag,
+                                 juce::Slider::TextBoxBelow };
+    juce::Slider spotDimSlider { juce::Slider::RotaryHorizontalVerticalDrag,
+                                 juce::Slider::TextBoxBelow };
+    juce::Label  ledDimLabel;
+    juce::Label  spotDimLabel;
+    DimKnobLookAndFeel knobLnf;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> ledDimAttach;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> spotDimAttach;
+
     // Backing store for the log text. setText() on the editor is the
     // expensive operation (full relayout); we batch into this buffer
     // and flush at most once per timer tick.
@@ -54,6 +79,9 @@ private:
     bool         logDirty { false };
 
     bool connectAttempt = false;
+
+    // Pane card backgrounds, set in resized(), painted in paint().
+    juce::Rectangle<int> leftPaneArea, midPaneArea, rightPaneArea;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (HitNoteDmxAudioProcessorEditor)
 };

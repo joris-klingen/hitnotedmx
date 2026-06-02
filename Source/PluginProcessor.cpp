@@ -22,6 +22,28 @@ HitNoteDmxAudioProcessor::createParameterLayout()
             juce::NormalisableRange<float> (0.0f, 255.0f, 1.0f),
             0.0f));
     }
+
+    // Master dims — automatable so a host/MIDI-mapped knob can ride them
+    // live. 0..1, default 1.0 (no attenuation). These are NOT "chN"
+    // channel params, so parameterChanged() ignores them; processBlock
+    // polls them each block and feeds them into computeDmx(). The
+    // value<->text functions format as a percentage in both the host and
+    // the attached on-screen knob.
+    const auto pctAttributes = juce::AudioParameterFloatAttributes()
+        .withStringFromValueFunction ([] (float v, int) {
+            return juce::String (juce::roundToInt (v * 100.0f)) + "%"; })
+        .withValueFromStringFunction ([] (const juce::String& t) {
+            return t.removeCharacters ("% ").getFloatValue() / 100.0f; });
+
+    layout.add (std::make_unique<juce::AudioParameterFloat> (
+        juce::ParameterID (kLedMasterDimId, 1),
+        "LED Master Dim",
+        juce::NormalisableRange<float> (0.0f, 1.0f), 1.0f, pctAttributes));
+    layout.add (std::make_unique<juce::AudioParameterFloat> (
+        juce::ParameterID (kSpotMasterDimId, 1),
+        "Spot Master Dim",
+        juce::NormalisableRange<float> (0.0f, 1.0f), 1.0f, pctAttributes));
+
     return layout;
 }
 
@@ -33,6 +55,9 @@ HitNoteDmxAudioProcessor::HitNoteDmxAudioProcessor()
 {
     for (int i = 1; i <= kDmxUniverseSize; ++i)
         parameters.addParameterListener (paramIdForChannel (i), this);
+
+    ledMasterDimParam  = parameters.getRawParameterValue (kLedMasterDimId);
+    spotMasterDimParam = parameters.getRawParameterValue (kSpotMasterDimId);
 }
 
 HitNoteDmxAudioProcessor::~HitNoteDmxAudioProcessor()
@@ -123,7 +148,9 @@ void HitNoteDmxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     //    Block durations are typically 5-10 ms so per-event time skew
     //    inside one block is negligible for the recipes' periodic shapes,
     //    and computing once keeps work bounded.
-    computeDmx (midiState, blockStartBeat, dmxValues);
+    const float ledDim  = ledMasterDimParam  != nullptr ? ledMasterDimParam->load()  : 1.0f;
+    const float spotDim = spotMasterDimParam != nullptr ? spotMasterDimParam->load() : 1.0f;
+    computeDmx (midiState, blockStartBeat, dmxValues, ledDim, spotDim);
 
     // 4. Push every rig channel out to the ENTTEC widget. The driver
     //    holds a CriticalSection internally; setChannel is the same

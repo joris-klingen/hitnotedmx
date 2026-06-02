@@ -68,12 +68,23 @@ public:
 
     static juce::String paramIdForChannel (int channel1to512);
 
+    // Automatable master-dim parameter IDs (0..1). Exposed so the editor
+    // can attach on-screen knobs to the same parameters the host sees.
+    static constexpr const char* kLedMasterDimId  = "ledMasterDim";
+    static constexpr const char* kSpotMasterDimId = "spotMasterDim";
+
 private:
     void parameterChanged (const juce::String& parameterID, float newValue) override;
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
     juce::AudioProcessorValueTreeState parameters;
+
+    // Cached atomic views of the master-dim params, polled each block in
+    // processBlock and fed to computeDmx. Owned by `parameters`.
+    std::atomic<float>* ledMasterDimParam  { nullptr };
+    std::atomic<float>* spotMasterDimParam { nullptr };
+
     EnttecProDmx dmx;
     MidiLog    midiLog;
     MidiState  midiState;
