@@ -45,7 +45,7 @@ inline constexpr bool isSpotPitch (int p) { return p >= 0 && p < kNumSpotTrigger
 // Set membership per pitch, encoded as a 4-bit mask (bit n = bar n active).
 
 constexpr int kBarSelStart = 4;
-constexpr int kBarSelEnd   = 11;
+constexpr int kBarSelEnd   = 8;
 constexpr int kNumBarSelectors = kBarSelEnd - kBarSelStart + 1;
 
 constexpr std::array<std::uint8_t, kNumBarSelectors> kBarSelectorMask {{
@@ -54,9 +54,6 @@ constexpr std::array<std::uint8_t, kNumBarSelectors> kBarSelectorMask {{
     0b0010,  //  6: bar 2
     0b0100,  //  7: bar 3
     0b1000,  //  8: bar 4
-    0b0011,  //  9: bars 1+2
-    0b1100,  // 10: bars 3+4
-    0b1001,  // 11: bars 1+4
 }};
 
 inline constexpr bool isBarSelPitch (int p) { return p >= kBarSelStart && p <= kBarSelEnd; }
@@ -70,7 +67,7 @@ inline constexpr bool isBarSelPitch (int p) { return p >= kBarSelStart && p <= k
 // two adjacent pixels 2z-1 and 2z.
 
 constexpr int kPixelStaticStart = 12;
-constexpr int kPixelStaticEnd   = 23;
+constexpr int kPixelStaticEnd   = 20;
 constexpr int kNumPixelStatics  = kPixelStaticEnd - kPixelStaticStart + 1;
 
 constexpr std::uint32_t bit (int p)  // 1-based pixel → bit
@@ -84,18 +81,15 @@ constexpr std::uint32_t zone (int z)  // 1-based 9-zone index → its two pixels
 }
 
 constexpr std::array<std::uint32_t, kNumPixelStatics> kPixelStaticMask {{
-    zone(1),                                                  // 12 {1}
-    zone(2) | zone(3),                                        // 13 {2,3}
-    zone(4),                                                  // 14 {4}
-    zone(5) | zone(6),                                        // 15 {5,6}
-    zone(7) | zone(8),                                        // 16 {7,8}
-    zone(9),                                                  // 17 {9}
-    zone(1) | zone(2) | zone(3),                              // 18 {1..3}
-    zone(4) | zone(5) | zone(6),                              // 19 {4..6}
-    zone(7) | zone(8) | zone(9),                              // 20 {7..9}
-    zone(1) | zone(9),                                        // 21 {1,9}
-    zone(1) | zone(3) | zone(5) | zone(7) | zone(9),          // 22 odd
-    zone(2) | zone(5) | zone(8),                              // 23 {2,5,8}
+    zone(1),  // 12
+    zone(2),  // 13
+    zone(3),  // 14
+    zone(4),  // 15
+    zone(5),  // 16
+    zone(6),  // 17
+    zone(7),  // 18
+    zone(8),  // 19
+    zone(9),  // 20
 }};
 
 inline constexpr bool isPixelStaticPitch (int p)
@@ -289,31 +283,32 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
         }
     });
 
-    // ---- 5. Dynamic layer: split into primary/secondary recipe lists ----
-    // Small fixed-size buffers; the audio thread never allocates.
-    constexpr int kMaxRecipesPerSide = 16;
-    std::array<DynamicFn, kMaxRecipesPerSide> primaryRecipes {};
-    std::array<DynamicFn, kMaxRecipesPerSide> secondaryRecipes {};
-    int nPrimary = 0;
-    int nSecondary = 0;
+    // ---- 5. Dynamic layer ------------------------------------------------
+    // Dynamics contribute brightness/motion only — they do NOT pick a colour
+    // route. The colour comes from the bar/zone selectors (whose velocity
+    // routes primary vs secondary) or the primary palette by default, so a
+    // chase renders in whatever colour the structural layers chose. For
+    // dynamics, velocity instead drives the trail length. Each held note
+    // keeps its own tail, so simultaneous chases can trail independently.
+    // Small fixed-size buffer; the audio thread never allocates.
+    struct ActiveRecipe { DynamicFn fn; float tail; };
+    constexpr int kMaxRecipes = 16;
+    std::array<ActiveRecipe, kMaxRecipes> recipes {};
+    int nRecipes = 0;
     bool dynamicLayerHeld = false;
 
     state.forEachHeld ([&] (std::uint8_t pitch, const HeldNote& n)
     {
         if (! isDynamicPitch (pitch))
             return;
-        dynamicLayerHeld = true;
         auto fn = getDynamicRecipe (pitch);
         if (fn == nullptr)
-            return;
-        if (n.velocity >= kVelocityThreshold)
-        {
-            if (nPrimary < kMaxRecipesPerSide) primaryRecipes[nPrimary++] = fn;
-        }
-        else
-        {
-            if (nSecondary < kMaxRecipesPerSide) secondaryRecipes[nSecondary++] = fn;
-        }
+            return;   // e.g. strobe (pitch 33) — applied as a driver-level shutter
+        dynamicLayerHeld = true;
+
+        // Soft notes trail long, hard notes snap to a single-pixel head.
+        const float tail = 1.0f - static_cast<float> (n.velocity) / 127.0f;
+        if (nRecipes < kMaxRecipes) recipes[nRecipes++] = { fn, tail };
     });
 
     // ---- 6. Spot layer ---------------------------------------------------
@@ -348,21 +343,14 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
             const Route pixR = pixelLayerHeld ? pixelRoute[pixel] : Route::None;
 
             float dynBrightness = 1.0f;
-            Route dynR = Route::None;
             if (dynamicLayerHeld)
             {
-                float dynPri = 0.0f;
-                for (int i = 0; i < nPrimary; ++i)
-                    dynPri = std::max (dynPri,
-                                       primaryRecipes[i] (tBeats, barIdx, pixel,
-                                                          bar.pixels, nBars));
-                float dynSec = 0.0f;
-                for (int i = 0; i < nSecondary; ++i)
-                    dynSec = std::max (dynSec,
-                                       secondaryRecipes[i] (tBeats, barIdx, pixel,
-                                                            bar.pixels, nBars));
-                if (dynPri >= dynSec) { dynBrightness = dynPri; dynR = Route::Primary;   }
-                else                  { dynBrightness = dynSec; dynR = Route::Secondary; }
+                float dyn = 0.0f;
+                for (int i = 0; i < nRecipes; ++i)
+                    dyn = std::max (dyn,
+                                    recipes[i].fn (tBeats, barIdx, pixel,
+                                                   bar.pixels, nBars, recipes[i].tail));
+                dynBrightness = dyn;
             }
 
             const float brightness = barBrightness * pixBrightness * dynBrightness;
@@ -375,9 +363,9 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
                 continue;
             }
 
-            // Most-specific route wins; fall back to primary.
+            // Most-specific route wins; fall back to primary. Dynamics don't
+            // route colour — they only modulate brightness above.
             Route route = pixR != Route::None ? pixR
-                        : dynR != Route::None ? dynR
                         : barR != Route::None ? barR
                         : Route::Primary;
 

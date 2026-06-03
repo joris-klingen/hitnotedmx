@@ -1,5 +1,6 @@
 #include "DmxVisualizer.h"
 
+#include "Recipes.h"  // kStrobeHz
 #include "Rig.h"
 
 namespace hitnotedmx
@@ -55,10 +56,40 @@ void DmxVisualizer::resized()
 
 void DmxVisualizer::paint (juce::Graphics& g)
 {
-    if (cachedImage.isValid())
+    if (strobeActive && strobeDark)
+        g.fillAll (juce::Colour (0xff141414));   // strobe blank: rig dark, panel bg unchanged
+    else if (cachedImage.isValid())
         g.drawImageAt (cachedImage, 0, 0);
     else
         g.fillAll (juce::Colour (0xff141414));
+}
+
+void DmxVisualizer::setStrobeActive (bool active)
+{
+    if (active == strobeActive)
+        return;
+
+    strobeActive = active;
+    if (active)
+    {
+        // Toggle twice per visible cycle, so the on/off rate matches the
+        // strobe frequency. 20 Hz max → 40 Hz timer, well under the display
+        // refresh; the callback is a single blit so cost is negligible.
+        strobeDark = false;
+        startTimerHz (juce::jmax (1, juce::roundToInt (2.0 * kStrobeHz)));
+    }
+    else
+    {
+        stopTimer();
+        strobeDark = false;
+        repaint();   // restore the steady lit frame
+    }
+}
+
+void DmxVisualizer::timerCallback()
+{
+    strobeDark = ! strobeDark;
+    repaint();
 }
 
 void DmxVisualizer::rebuildCache()

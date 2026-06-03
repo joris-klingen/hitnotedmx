@@ -237,7 +237,8 @@ bool EnttecProDmx::connect()
 
     connected.store (true);
     lastError = {};
-    startTimerHz (40);
+    txFrame = 0;
+    startTimer (1000 / kSendRateHz);   // ms period → kSendRateHz frames/sec
     return true;
 }
 
@@ -296,7 +297,7 @@ void EnttecProDmx::setChannel (int channel, juce::uint8 value)
     dmxData[(size_t) channel] = value;
 }
 
-void EnttecProDmx::timerCallback()
+void EnttecProDmx::hiResTimerCallback()
 {
     if (! connected.load())
         return;
@@ -310,11 +311,26 @@ void EnttecProDmx::timerCallback()
 
 bool EnttecProDmx::sendDmxFrame()
 {
-    const bool useBlackout = blackout.load();
+    bool dark = blackout.load();
+
+    // Strobe shutter — decided on the emitted-frame grid so the duty cycle
+    // is exactly even and locked to the DMX output clock (no audio-block
+    // coupling, no host-scheduling jitter in the on/off ratio). Whole frames
+    // alternate lit / black: even half-cycle = lit, odd = black.
+    const float hz = strobeHz.load();
+    if (hz > 0.0f)
+    {
+        const double framesPerHalf = (double) kSendRateHz / (2.0 * (double) hz);
+        const auto   halfCycle     = (std::uint64_t) ((double) txFrame / framesPerHalf);
+        if ((halfCycle & 1ull) != 0)
+            dark = true;
+    }
+    ++txFrame;
+
     std::array<unsigned char, kDataLen> snapshot;
     {
         const juce::ScopedLock lock (dataLock);
-        snapshot = useBlackout ? blackoutData : dmxData;
+        snapshot = dark ? blackoutData : dmxData;
     }
     return sendPacket (SET_DMX_TX_MODE, snapshot.data(), kDataLen) > 0;
 }

@@ -12,7 +12,7 @@ namespace
 {
 constexpr int kHeaderH   = 16;
 constexpr int kRowH      = 22;
-constexpr int kRowCols   = 3;
+constexpr int kRowCols   = 4;
 constexpr int kSwatchH   = 26;
 constexpr int kSwatchCols = 12;
 
@@ -71,17 +71,14 @@ void TriggerMenu::buildModel()
     rowsBlock ("Bars", {
         row (kBarSelStart + 0, "All bars"),
         row (kBarSelStart + 1, "Bar 1"), row (kBarSelStart + 2, "Bar 2"),
-        row (kBarSelStart + 3, "Bar 3"), row (kBarSelStart + 4, "Bar 4"),
-        row (kBarSelStart + 5, "Bars 1+2"), row (kBarSelStart + 6, "Bars 3+4"),
-        row (kBarSelStart + 7, "Bars 1+4") });
+        row (kBarSelStart + 3, "Bar 3"), row (kBarSelStart + 4, "Bar 4") });
 
     rowsBlock ("Pixel zones", {
-        row (kPixelStaticStart + 0,  "Zone 1"),  row (kPixelStaticStart + 1,  "Zn 2-3"),
-        row (kPixelStaticStart + 2,  "Zone 4"),  row (kPixelStaticStart + 3,  "Zn 5-6"),
-        row (kPixelStaticStart + 4,  "Zn 7-8"),  row (kPixelStaticStart + 5,  "Zone 9"),
-        row (kPixelStaticStart + 6,  "Zn 1-3"),  row (kPixelStaticStart + 7,  "Zn 4-6"),
-        row (kPixelStaticStart + 8,  "Zn 7-9"),  row (kPixelStaticStart + 9,  "Ends 1&9"),
-        row (kPixelStaticStart + 10, "Odd"),     row (kPixelStaticStart + 11, "Zn 2,5,8") });
+        row (kPixelStaticStart + 0, "Zone 1"), row (kPixelStaticStart + 1, "Zone 2"),
+        row (kPixelStaticStart + 2, "Zone 3"), row (kPixelStaticStart + 3, "Zone 4"),
+        row (kPixelStaticStart + 4, "Zone 5"), row (kPixelStaticStart + 5, "Zone 6"),
+        row (kPixelStaticStart + 6, "Zone 7"), row (kPixelStaticStart + 7, "Zone 8"),
+        row (kPixelStaticStart + 8, "Zone 9") });
 
     rowsBlock ("Dynamics", {
         row (kDynamicPitchStart + 0,  "Chase up"),  row (kDynamicPitchStart + 1,  "Chase dn"),
@@ -201,15 +198,17 @@ void TriggerMenu::paint (juce::Graphics& g)
                 g.setColour (on ? juce::Colour (0xff3a6ea5) : juce::Colour (0xff303030));
                 g.fillRoundedRectangle (cell.toFloat(), 3.0f);
 
-                auto text = cell.reduced (6, 0);
+                auto text = cell.reduced (5, 0);
+                const auto noteStr = noteName (it.pitch);
+                // Reserve right side for note name, give rest to label.
+                constexpr int kNoteW = 28;
+                auto noteArea  = text.removeFromRight (kNoteW);
                 g.setColour (on ? juce::Colours::white : juce::Colour (0xff8fb6dd));
                 g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
-                g.drawText (it.label, text.removeFromTop (cell.getHeight() / 2),
-                            juce::Justification::centredLeft);
-                g.setColour (on ? juce::Colours::white.withAlpha (0.85f) : juce::Colour (0xff888888));
-                g.setFont (juce::FontOptions (9.0f));
-                g.drawText (it.label.isEmpty() ? juce::String() : noteName (it.pitch),
-                            text, juce::Justification::centredLeft);
+                g.drawText (it.label, text, juce::Justification::centredLeft, true);
+                g.setColour (on ? juce::Colours::white.withAlpha (0.6f) : juce::Colour (0xff666666));
+                g.setFont (juce::FontOptions (8.5f));
+                g.drawText (noteStr, noteArea, juce::Justification::centredRight);
             }
         }
     }

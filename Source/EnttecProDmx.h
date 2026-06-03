@@ -2,6 +2,7 @@
 
 #include <array>
 #include <atomic>
+#include <cstdint>
 #include <string>
 #include <vector>
 #include <juce_core/juce_core.h>
@@ -15,10 +16,18 @@ inline constexpr int kDmxUniverseSize = 512;
 // Talks to an ENTTEC DMX USB Pro over its USB serial (VCP) port using only
 // macOS system frameworks (IOKit for discovery, POSIX termios for I/O).
 // No FTDI D2XX SDK required, and the resulting plugin is self-contained.
-// The send loop runs on a juce::Timer at the device refresh rate.
-class EnttecProDmx : private juce::Timer
+// The send loop runs on a juce::HighResolutionTimer (its own high-priority
+// thread, NOT the message thread) so frames emit at a steady cadence
+// regardless of GUI/host load.
+class EnttecProDmx : private juce::HighResolutionTimer
 {
 public:
+    // DMX frames emitted per second. This is the real output clock — the
+    // DMX line is refreshed once per call here, so any time-based output
+    // effect (e.g. the strobe shutter) is quantised to this grid. 40 Hz is
+    // near the DMX512 protocol ceiling for a full 512-channel universe.
+    static constexpr int kSendRateHz = 40;
+
     EnttecProDmx();
     ~EnttecProDmx() override;
 
@@ -34,8 +43,17 @@ public:
     void setChannel (int channel1to512, juce::uint8 value);
     void setBlackout (bool enabled)                         { blackout.store (enabled); }
 
+    // Global strobe shutter, applied at send time so it is perfectly
+    // synced to the DMX output clock and decoupled from the audio block
+    // rate. hz <= 0 disables it (frames pass through unmodified). When
+    // enabled, whole frames alternate lit / black on the send-frame grid,
+    // giving an exactly even duty cycle. Cleanest at hz dividing
+    // kSendRateHz/2 (e.g. 10 Hz = 2 on / 2 off, 20 Hz = 1 on / 1 off = max).
+    void  setStrobeHz (float hz)                            { strobeHz.store (hz); }
+    float getStrobeHz() const                               { return strobeHz.load(); }
+
 private:
-    void timerCallback() override;
+    void hiResTimerCallback() override;
 
     bool openPort (const std::string& devicePath);
     bool sendDmxFrame();
@@ -44,8 +62,10 @@ private:
     bool readByte (unsigned char& out);
     void closePort();
 
-    std::atomic<bool> connected { false };
-    std::atomic<bool> blackout  { false };
+    std::atomic<bool>  connected { false };
+    std::atomic<bool>  blackout  { false };
+    std::atomic<float> strobeHz  { 0.0f };   // 0 = no strobe shutter
+    std::uint64_t      txFrame   { 0 };       // emitted-frame counter (send thread only)
     int numDevicesDetected { 0 };
 
     // Index 0 is the DMX start code (kept 0). Channels 1..512 follow.

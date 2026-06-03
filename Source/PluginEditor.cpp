@@ -284,6 +284,10 @@ void HitNoteDmxAudioProcessorEditor::timerCallback()
 
     // Refresh the live DMX preview only when something actually changed.
     dmxView.repaintIfChanged();
+
+    // Mirror the strobe shutter on screen (the driver is the source of
+    // truth, whether triggered live or via the preview menu).
+    dmxView.setStrobeActive (proc.getDmx().getStrobeHz() > 0.0f);
 }
 
 void HitNoteDmxAudioProcessorEditor::refreshDeviceStatus()

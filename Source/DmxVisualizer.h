@@ -24,7 +24,8 @@ namespace hitnotedmx
 //   2 RGBW spots across the top, then 4 vertical bars below them (each
 //   18 cells tall, pixel 1 at the bottom matching the rig's bottom-up
 //   orientation).
-class DmxVisualizer : public juce::Component
+class DmxVisualizer : public juce::Component,
+                      private juce::Timer
 {
 public:
     explicit DmxVisualizer (const DmxValues& valuesRef);
@@ -37,7 +38,15 @@ public:
     // editor's GUI timer.
     void repaintIfChanged();
 
+    // Mirror the driver's strobe shutter on screen. While active, a
+    // dedicated timer flashes the preview to black on alternate ticks at
+    // the strobe frequency; otherwise the timer is stopped (zero cost).
+    // The preview is NOT phase-locked to the real DMX output (different
+    // clocks) — it just conveys that a strobe is running.
+    void setStrobeActive (bool active);
+
 private:
+    void timerCallback() override;
     void rebuildCache();
 
     static constexpr int kFingerprintSize =
@@ -47,6 +56,9 @@ private:
 
     juce::Image cachedImage;  // ARGB; fully covers the component bounds
     std::array<std::uint8_t, kFingerprintSize> lastFingerprint {};
+
+    bool strobeActive { false };  // is the strobe-flash timer running?
+    bool strobeDark   { false };  // current flash phase (true = blanked)
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DmxVisualizer)
 };

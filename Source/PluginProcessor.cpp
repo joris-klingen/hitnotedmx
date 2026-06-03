@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "Palette.h"
+#include "Recipes.h"
 #include "Rig.h"
 
 namespace hitnotedmx
@@ -186,6 +187,13 @@ void HitNoteDmxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     const float spotDim = spotMasterDimParam != nullptr ? spotMasterDimParam->load() : 1.0f;
     const double dtSeconds = static_cast<double> (buffer.getNumSamples()) / sampleRate_;
     computeDmx (midiState, blockStartBeat, dmxValues, ledDim, spotDim, &colorFade, dtSeconds);
+
+    // Strobe is a global shutter applied in the DMX driver's send loop (so
+    // it stays locked to the output clock and free of audio-block jitter).
+    // Here we only publish whether the strobe note is held; the driver does
+    // the frame-synced on/off gating.
+    const bool strobeHeld = midiState.isActive (static_cast<std::uint8_t> (kStrobePitch));
+    dmx.setStrobeHz (strobeHeld ? static_cast<float> (kStrobeHz) : 0.0f);
 
     // 4. Push every rig channel out to the ENTTEC widget. The driver
     //    holds a CriticalSection internally.
