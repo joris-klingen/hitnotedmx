@@ -97,8 +97,15 @@ struct ColorFadeState
     void reset() noexcept { primary = Channel {}; secondary = Channel {}; }
 };
 
+// `pixelDensity` (0..1, default 1.0) is the experimental dark-room thinning
+// control (TODO #1): below 1.0 it blanks a stable, position-hashed subset of
+// the bar pixels so fewer LEDs are lit, while the pixels that stay on keep
+// full brightness (it gates on/off, it does not dim). The gated set is fixed
+// frame-to-frame, so lowering density removes pixels without flicker. Spots
+// are unaffected.
 void computeDmx (const MidiState& state, double tBeats, DmxValues& outValues,
                  float ledMasterDim = 1.0f, float spotMasterDim = 1.0f,
-                 ColorFadeState* fade = nullptr, double dtSeconds = 0.0) noexcept;
+                 ColorFadeState* fade = nullptr, double dtSeconds = 0.0,
+                 float pixelDensity = 1.0f) noexcept;
 
 }  // namespace hitnotedmx

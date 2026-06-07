@@ -50,6 +50,10 @@ HitNoteDmxAudioProcessor::createParameterLayout()
         juce::ParameterID (kSpotMasterDimId, 1),
         "Spot Master Dim",
         juce::NormalisableRange<float> (0.0f, 1.0f), 1.0f, pctAttributes));
+    layout.add (std::make_unique<juce::AudioParameterFloat> (
+        juce::ParameterID (kPixelDensityId, 1),
+        "Pixel Density",
+        juce::NormalisableRange<float> (0.0f, 1.0f), 1.0f, pctAttributes));
 
     return layout;
 }
@@ -65,6 +69,7 @@ HitNoteDmxAudioProcessor::HitNoteDmxAudioProcessor()
 
     ledMasterDimParam  = parameters.getRawParameterValue (kLedMasterDimId);
     spotMasterDimParam = parameters.getRawParameterValue (kSpotMasterDimId);
+    pixelDensityParam  = parameters.getRawParameterValue (kPixelDensityId);
 
     for (auto& p : previewPitch)
         p.store (-1);
@@ -185,8 +190,9 @@ void HitNoteDmxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     //    and computing once keeps work bounded.
     const float ledDim  = ledMasterDimParam  != nullptr ? ledMasterDimParam->load()  : 1.0f;
     const float spotDim = spotMasterDimParam != nullptr ? spotMasterDimParam->load() : 1.0f;
+    const float density = pixelDensityParam  != nullptr ? pixelDensityParam->load()  : 1.0f;
     const double dtSeconds = static_cast<double> (buffer.getNumSamples()) / sampleRate_;
-    computeDmx (midiState, blockStartBeat, dmxValues, ledDim, spotDim, &colorFade, dtSeconds);
+    computeDmx (midiState, blockStartBeat, dmxValues, ledDim, spotDim, &colorFade, dtSeconds, density);
 
     // Strobe is a global shutter applied in the DMX driver's send loop (so
     // it stays locked to the output clock and free of audio-block jitter).

@@ -78,6 +78,9 @@ public:
     // can attach on-screen knobs to the same parameters the host sees.
     static constexpr const char* kLedMasterDimId  = "ledMasterDim";
     static constexpr const char* kSpotMasterDimId = "spotMasterDim";
+    // Experimental dark-room pixel-density control (TODO #1). 0..1, default
+    // 1.0 = every LED lit; lower thins a stable subset (see computeDmx).
+    static constexpr const char* kPixelDensityId  = "pixelDensity";
 
 private:
     void parameterChanged (const juce::String& parameterID, float newValue) override;
@@ -93,6 +96,7 @@ private:
     // processBlock and fed to computeDmx. Owned by `parameters`.
     std::atomic<float>* ledMasterDimParam  { nullptr };
     std::atomic<float>* spotMasterDimParam { nullptr };
+    std::atomic<float>* pixelDensityParam  { nullptr };
 
     EnttecProDmx dmx;
     MidiLog    midiLog;

@@ -189,9 +189,22 @@ void advanceFade (ColorFadeState::Channel& c,
 }  // namespace
 
 
+// Stable per-pixel gate value in [0, 1) for the experimental pixel-density
+// control. Deterministic from the pixel's grid position, so the SET of
+// pixels passing a given density threshold is fixed frame-to-frame (no
+// flicker) and shrinks monotonically as density falls. Knuth golden-ratio
+// integer hash; a different position mix than sparklePhase so the thinned
+// pattern doesn't correlate with the sparkle recipe.
+inline float pixelDensityHash (int barIdx, int pixel) noexcept
+{
+    const std::uint32_t h =
+        static_cast<std::uint32_t> ((barIdx * 131 + pixel * 17) * 0x9E3779B1u);
+    return static_cast<float> (h) / 4294967296.0f;
+}
+
 void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
                  float ledMasterDim, float spotMasterDim,
-                 ColorFadeState* fade, double dtSeconds) noexcept
+                 ColorFadeState* fade, double dtSeconds, float pixelDensity) noexcept
 {
     out.clear();
 
@@ -337,6 +350,14 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
 
         for (int pixel = 1; pixel <= bar.pixels; ++pixel)
         {
+            // Experimental pixel-density thinning (TODO #1): for dark rooms,
+            // run fewer LEDs without dimming the ones that stay on. A stable
+            // per-position hash gates each pixel, so density<1 drops pixels
+            // in a fixed (non-flickering) order while passing pixels keep
+            // full-brightness flashes. density==1 lights everything (no-op).
+            if (pixelDensity < 1.0f && pixelDensityHash (barIdx, pixel) >= pixelDensity)
+                continue;   // out was cleared at entry, so this pixel stays black
+
             const float pixBrightness = pixelLayerHeld
                                       ? (pixelRoute[pixel] != Route::None ? 1.0f : 0.0f)
                                       : 1.0f;

@@ -111,11 +111,14 @@ HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioP
     };
     setUpDimSlider (ledDimSlider,  ledDimLabel,  "LED DIM",  juce::Colour (0xff39c6c0));
     setUpDimSlider (spotDimSlider, spotDimLabel, "SPOT DIM", juce::Colour (0xfff2a93b));
+    setUpDimSlider (densitySlider, densityLabel, "DENSITY",  juce::Colour (0xffb079d6));
 
     ledDimAttach = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
         proc.getParameters(), HitNoteDmxAudioProcessor::kLedMasterDimId, ledDimSlider);
     spotDimAttach = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
         proc.getParameters(), HitNoteDmxAudioProcessor::kSpotMasterDimId, spotDimSlider);
+    densityAttach = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
+        proc.getParameters(), HitNoteDmxAudioProcessor::kPixelDensityId, densitySlider);
 
     // Right pane: clickable trigger reference. Cells toggle and combine;
     // the latched set drives the live preview.
@@ -147,6 +150,7 @@ HitNoteDmxAudioProcessorEditor::~HitNoteDmxAudioProcessorEditor()
     blackoutButton.removeListener (this);
     ledDimSlider.setLookAndFeel (nullptr);
     spotDimSlider.setLookAndFeel (nullptr);
+    densitySlider.setLookAndFeel (nullptr);
 }
 
 void HitNoteDmxAudioProcessorEditor::paint (juce::Graphics& g)
@@ -193,14 +197,15 @@ void HitNoteDmxAudioProcessorEditor::resized()
     // ---- LEFT pane: knobs (top) + MIDI log (middle) + utility buttons (bottom) ----
     {
         auto knobRow = leftContent.removeFromTop (108);
-        const int colW = knobRow.getWidth() / 2;
+        const int colW = knobRow.getWidth() / 3;
         auto place = [] (juce::Rectangle<int> col, juce::Label& lab, juce::Slider& s)
         {
             lab.setBounds (col.removeFromTop (16));
             s.setBounds (col);
         };
         place (knobRow.removeFromLeft (colW), ledDimLabel,  ledDimSlider);
-        place (knobRow,                       spotDimLabel, spotDimSlider);
+        place (knobRow.removeFromLeft (colW), spotDimLabel, spotDimSlider);
+        place (knobRow,                       densityLabel, densitySlider);
         leftContent.removeFromTop (8);
 
         // Utility controls pinned to the bottom: status line + the three

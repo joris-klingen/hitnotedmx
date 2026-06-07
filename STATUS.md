@@ -8,8 +8,9 @@ Recent arc: 18 px/bar rig bump → master-dim params + 3-pane editor
 redesign → spots-above-grid visualiser → velocity-driven colour fade →
 utility-button relocation → vocabulary simplification (bars + pixel zones)
 + 4-column trigger menu → real-hardware DMX smoke test passed → frame-synced
-strobe shutter → velocity-controllable chase tails. A Standalone build
-ships alongside VST3.
+strobe shutter → velocity-controllable chase tails → trigger-menu dynamics
+regrouped + experimental pixel-density control. A Standalone build ships
+alongside VST3.
 
 ## What this repo is
 
@@ -38,12 +39,12 @@ ENTTEC USB Pro hardware with the 228-channel rig lit (smoke test passed).
 | Held-note tracker | `MidiState.{h,cpp}` | 128-slot array indexed by pitch. O(1) noteOn/noteOff/clear, no allocations. |
 | Dynamic recipes | `Recipes.{h,cpp}` | 12-slot vocabulary. 11 per-pixel recipes (chase_up/down, ping_pong, snake, sine_wave, sparkle, breathe, sweep_up/down, kick_pulse, alt_swap) via function-pointer dispatch; the strobe slot (pitch 33) is null here — it's a driver-level shutter (see below). `DynamicFn` carries a `tail` arg (0..1); the moving-head chases render a velocity-driven comet trail via `cometBrightness`. |
 | Composition | `Composition.{h,cpp}` | Bit-mask lookup tables, mask intersection across utility / static / dynamic layers, primary/secondary palette routing, spot RGBW with warm-white tint. Plus master-dim scaling and velocity-driven linear colour fade (`ColorFadeState`, see below). **Colour routing comes from the bar/zone selectors (their velocity picks primary vs secondary); the dynamic layer modulates brightness only and does not route colour** — so a chase takes the selector's colour, or primary by default. Velocity on a dynamic note instead sets its tail length. |
-| Master dims | `PluginProcessor.{h,cpp}` | Two automatable params — LED Master Dim + Spot Master Dim (0..1, shown as %). Applied inside `computeDmx` so output and on-screen preview both reflect them; MIDI-mappable in the host. |
+| Master dims + density | `PluginProcessor.{h,cpp}`, `Composition.cpp` | Three automatable params — LED Master Dim + Spot Master Dim + **Pixel Density** (0..1, shown as %). Dims scale RGB / spot dimmer; density is an experimental dark-room thinning control: a stable per-pixel position hash (`pixelDensityHash`) blanks a fixed subset of bar pixels below 100%, so fewer LEDs light without flicker and the survivors keep full brightness (gates on/off, never dims). All three applied inside `computeDmx` so the on-screen preview reflects them; MIDI-mappable in the host. |
 | Colour fade | `Composition.{h,cpp}` | Each palette's displayed colour ramps linearly toward the winning note. Fade duration from the note's velocity (hard = instant, soft = up to 3 s) → a soft "black" palette note is a slow fade-to-black. State persists across blocks; advanced by wall-clock dt so it runs even when transport is stopped. |
 | Audio-thread → GUI MIDI log | `MidiLog.{h,cpp}` | Lock-free SPSC ring (256 entries). |
 | processBlock wiring | `PluginProcessor.cpp` | Pulls PPQ + BPM from `AudioPlayHead`, stamps MIDI events to beat time, runs `computeDmx()` once per block (with master-dim values + colour-fade state + block dt), pushes 228 channels via `dmx.setChannel()`. When the host transport isn't playing it advances a free-running beat clock so recipes still animate (standalone / transport-stopped preview). |
 | Editor | `PluginEditor.{h,cpp}` | Three-pane layout — left: master-dim knobs (custom rotary look) + MIDI log + Connect/Disconnect/Blackout + ENTTEC status; middle: visualiser; right: the clickable trigger menu. 15 Hz GUI timer drains the MIDI log and mirrors the driver's strobe state onto the visualiser. Also builds as a Standalone app for DAW-free testing. |
-| Trigger menu | `TriggerMenu.{h,cpp}` | 4-column, non-scrolling reference of the whole vocabulary; each cell shows its label plus the MIDI note name in grey on the same line. Cells toggle and combine; the latched set is injected into `MidiState` via lock-free atomics (`setPreviewPitches`/`applyPreview`) and previewed live. |
+| Trigger menu | `TriggerMenu.{h,cpp}` | 4-column, non-scrolling reference of the whole vocabulary; each cell shows its label plus the MIDI note name in grey on the same line. Cells toggle and combine; the latched set is injected into `MidiState` via lock-free atomics (`setPreviewPitches`/`applyPreview`) and previewed live. Dynamics are grouped by feel — **Chases / Breathes / Wild** — with a **Multicolor** slot reserved for the future self-coloured recipes. |
 | On-screen DMX preview | `DmxVisualizer.{h,cpp}` | 2 spot circles on top, then 4 vertical bars × 18 cells. Pre-rendered into a single `juce::Image`, blitted by `paint()`. Re-rasterised only when the rig footprint's 8-bit fingerprint changes. Owns a dedicated strobe-flash timer (runs only while the strobe note is held) that blanks the rig to the panel background on alternate ticks at the strobe rate — preview only, not phase-locked to the real output. |
 | ENTTEC driver | `EnttecProDmx.{h,cpp}` | Self-contained ENTTEC DMX USB Pro driver (IOKit discovery + POSIX termios I/O). Best-effort widget handshake, raised read timeout, 700-byte RX. Send loop runs on a `juce::HighResolutionTimer` (its own thread, off the message thread) at 40 Hz for steady frame emission. Hosts the **strobe shutter**: `setStrobeHz()` gates whole frames lit/black on the emitted-frame counter, so the strobe is exactly synced to the DMX output clock and free of audio-block jitter (10 Hz = 2-on/2-off; 20 Hz max). |
 
@@ -140,8 +141,9 @@ Open backlog is tracked in [TODO.md](TODO.md); the strategic shape:
   strobe/chase-tail expressiveness are all in place for this now.
 - **Expand the recipe library** as gaps appear — LLM-drafted, ported to C++
   alongside the existing set. New moving-head recipes reuse the `tail` arg.
-- **Pixel-density reduction** (experimental) — a master control that thins
-  active LEDs while keeping full-brightness flashes; spike first.
+- **Judge / tune the pixel-density spike** — a master DENSITY knob now thins
+  the bar LEDs via a stable position hash (preview-visible). If kept,
+  follow-ups are tuning the scatter (hash vs every-Nth) and the default.
 
 **Housekeeping / post-show**
 - **Confirm long-session GUI stability** under sustained chases + strobe;
@@ -152,7 +154,8 @@ Open backlog is tracked in [TODO.md](TODO.md); the strategic shape:
 fade, master dims, 3-pane redesign, spots above the grid, 18 px/bar rig,
 vocabulary simplification (bars + pixel zones), 4-column menu, real-hardware
 DMX smoke test, frame-synced strobe shutter, velocity-controllable chase
-tails (with dynamics decoupled from colour routing).
+tails (with dynamics decoupled from colour routing), trigger-menu dynamics
+regrouped (Chases / Breathes / Wild), experimental pixel-density control.
 
 ## How to verify after a fresh checkout
 

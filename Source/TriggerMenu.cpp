@@ -80,13 +80,21 @@ void TriggerMenu::buildModel()
         row (kPixelStaticStart + 6, "Zone 7"), row (kPixelStaticStart + 7, "Zone 8"),
         row (kPixelStaticStart + 8, "Zone 9") });
 
-    rowsBlock ("Dynamics", {
+    // Dynamics, grouped by feel. Pitches are unchanged from the flat
+    // vocabulary (24..35) — only the menu presentation is grouped. A future
+    // "Multicolor" block lands here with the self-coloured recipes (TODO #5).
+    rowsBlock ("Chases", {
         row (kDynamicPitchStart + 0,  "Chase up"),  row (kDynamicPitchStart + 1,  "Chase dn"),
         row (kDynamicPitchStart + 2,  "Ping-pong"), row (kDynamicPitchStart + 3,  "Snake"),
-        row (kDynamicPitchStart + 4,  "Sine"),      row (kDynamicPitchStart + 5,  "Sparkle"),
-        row (kDynamicPitchStart + 6,  "Breathe"),   row (kDynamicPitchStart + 7,  "Sweep up"),
-        row (kDynamicPitchStart + 8,  "Sweep dn"),  row (kDynamicPitchStart + 9,  "Strobe"),
-        row (kDynamicPitchStart + 10, "Kick"),      row (kDynamicPitchStart + 11, "Alt swap") });
+        row (kDynamicPitchStart + 7,  "Sweep up"),  row (kDynamicPitchStart + 8,  "Sweep dn") });
+
+    rowsBlock ("Breathes", {
+        row (kDynamicPitchStart + 4,  "Sine"),      row (kDynamicPitchStart + 6,  "Breathe"),
+        row (kDynamicPitchStart + 10, "Kick") });
+
+    rowsBlock ("Wild", {
+        row (kDynamicPitchStart + 5,  "Sparkle"),   row (kDynamicPitchStart + 9,  "Strobe"),
+        row (kDynamicPitchStart + 11, "Alt swap") });
 
     swatchBlock ("Primary colours",   kPrimaryPaletteStart);
     swatchBlock ("Secondary colours", kSecondaryPaletteStart);

@@ -69,11 +69,15 @@ private:
                                  juce::Slider::TextBoxBelow };
     juce::Slider spotDimSlider { juce::Slider::RotaryHorizontalVerticalDrag,
                                  juce::Slider::TextBoxBelow };
+    juce::Slider densitySlider { juce::Slider::RotaryHorizontalVerticalDrag,
+                                 juce::Slider::TextBoxBelow };
     juce::Label  ledDimLabel;
     juce::Label  spotDimLabel;
+    juce::Label  densityLabel;
     DimKnobLookAndFeel knobLnf;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> ledDimAttach;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> spotDimAttach;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> densityAttach;
 
     // Backing store for the log text. setText() on the editor is the
     // expensive operation (full relayout); we batch into this buffer
