@@ -53,7 +53,6 @@ private:
     HitNoteDmxAudioProcessor& proc;
 
     juce::TextButton connectUsbButton  { "Connect USB" };
-    juce::TextButton disconnectButton  { "Disconnect" };
     juce::TextButton blackoutButton    { "Blackout" };
     juce::Label      deviceStatusLabel;
     juce::TextEditor midiLogView;
@@ -85,10 +84,13 @@ private:
     juce::String logBuffer;
     bool         logDirty { false };
 
+    std::vector<int> heldScratch;   // reused each tick for the live-MIDI highlight
+
     bool connectAttempt = false;
 
     // Pane card backgrounds, set in resized(), painted in paint().
-    juce::Rectangle<int> leftPaneArea, midPaneArea, rightPaneArea;
+    // titleArea is the strip above the visualiser carrying the app title.
+    juce::Rectangle<int> leftPaneArea, midPaneArea, rightPaneArea, titleArea;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (HitNoteDmxAudioProcessorEditor)
 };

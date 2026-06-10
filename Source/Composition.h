@@ -46,15 +46,17 @@ private:
 
 // Compute per-channel DMX state at the given playhead time:
 //
-//   1. If the blackout pitch (84) is held, all channels are 0.
+//   1. If the blackout pitch (0, C-2) is held, all channels are 0.
 //   2. Compute primary and secondary palette colors from active
 //      color notes (most recent wins; no crossfade — see comment in
 //      Composition.cpp for the simplification).
 //   3. Build bar / pixel / dynamic masks from active utility notes.
 //      Each layer defaults to "all lit" if no note in that layer is
 //      held. Lit pixels = intersection.
-//   4. Per pixel, choose color route: pixel > dynamic > bar (most-
-//      specific wins). Apply color × brightness to the three DMX
+//   4. Per pixel, choose color route: pixel > bar (most-specific wins),
+//      falling back to primary. If a self-coloured dynamic recipe (the
+//      Multicolor bank, pitches 60..83) is held, its RGB replaces the
+//      palette route entirely. Apply color × brightness to the three DMX
 //      channels of that pixel.
 //   5. Spots: warm-white tint if WW pitches held, plus secondary
 //      colour overlay if their sec pitches held. RGBW channels set
@@ -97,12 +99,13 @@ struct ColorFadeState
     void reset() noexcept { primary = Channel {}; secondary = Channel {}; }
 };
 
-// `pixelDensity` (0..1, default 1.0) is the experimental dark-room thinning
-// control (TODO #1): below 1.0 it blanks a stable, position-hashed subset of
-// the bar pixels so fewer LEDs are lit, while the pixels that stay on keep
-// full brightness (it gates on/off, it does not dim). The gated set is fixed
-// frame-to-frame, so lowering density removes pixels without flicker. Spots
-// are unaffected.
+// `pixelDensity` (0..1, default 1.0) is the dark-room thinning control:
+// below 1.0 it blanks a stable subset of the bar pixels so fewer LEDs are
+// lit, while the pixels that stay on keep full brightness (it gates on/off,
+// it does not dim). Pixels drop in a fixed random order (avalanche hash,
+// rank-normalised per bar so every bar keeps the same lit fraction), so
+// lowering density removes pixels without flicker and without diagonal
+// banding. Spots are unaffected.
 void computeDmx (const MidiState& state, double tBeats, DmxValues& outValues,
                  float ledMasterDim = 1.0f, float spotMasterDim = 1.0f,
                  ColorFadeState* fade = nullptr, double dtSeconds = 0.0,

@@ -55,6 +55,11 @@ public:
     EnttecProDmx& getDmx() noexcept                                   { return dmx; }
     MidiLog& getMidiLog() noexcept                                    { return midiLog; }
 
+    // Snapshot of which vocabulary pitches are currently held (live MIDI +
+    // preview). Read from the GUI thread for the trigger-menu activity
+    // display; a racy per-pitch bool read is fine for a ~15 Hz indicator.
+    void getHeldPitches (std::vector<int>& out) const;
+
     // Read-only view of the composition's per-channel output, refreshed
     // every audio block. Read from the GUI thread for the on-screen DMX
     // visualizer. Per-cell tearing under a concurrent audio-thread write
@@ -78,8 +83,8 @@ public:
     // can attach on-screen knobs to the same parameters the host sees.
     static constexpr const char* kLedMasterDimId  = "ledMasterDim";
     static constexpr const char* kSpotMasterDimId = "spotMasterDim";
-    // Experimental dark-room pixel-density control (TODO #1). 0..1, default
-    // 1.0 = every LED lit; lower thins a stable subset (see computeDmx).
+    // Dark-room pixel-density control. 0..1, default 1.0 = every LED lit;
+    // lower thins a stable per-bar subset of pixels (see computeDmx).
     static constexpr const char* kPixelDensityId  = "pixelDensity";
 
 private:

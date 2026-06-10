@@ -70,18 +70,22 @@ void DimKnobLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int 
 HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioProcessor& p)
     : AudioProcessorEditor (&p), proc (p), dmxView (p.getDmxValues())
 {
-    setSize (1024, 640);
+    // Flat & wide. The trigger menu is a transposed 12-row piano-roll grid,
+    // so the visualiser height sets the minimum window height. Width fits the
+    // left controls + the rig + the trigger grid (ten columns: the second
+    // Multicolor octave roughly replaces a dropped palette column).
+    setSize (1220, 360);
 
     addAndMakeVisible (connectUsbButton);
-    addAndMakeVisible (disconnectButton);
     addAndMakeVisible (blackoutButton);
     connectUsbButton.addListener (this);
-    disconnectButton.addListener (this);
     blackoutButton.addListener (this);
     blackoutButton.setClickingTogglesState (true);
 
     deviceStatusLabel.setJustificationType (juce::Justification::centredLeft);
     deviceStatusLabel.setColour (juce::Label::textColourId, juce::Colours::white);
+    deviceStatusLabel.setFont (juce::FontOptions (11.0f));
+    deviceStatusLabel.setMinimumHorizontalScale (0.7f);  // keep it to one line
     addAndMakeVisible (deviceStatusLabel);
 
     addAndMakeVisible (dmxView);
@@ -146,7 +150,6 @@ HitNoteDmxAudioProcessorEditor::~HitNoteDmxAudioProcessorEditor()
 {
     stopTimer();
     connectUsbButton.removeListener (this);
-    disconnectButton.removeListener (this);
     blackoutButton.removeListener (this);
     ledDimSlider.setLookAndFeel (nullptr);
     spotDimSlider.setLookAndFeel (nullptr);
@@ -157,11 +160,16 @@ void HitNoteDmxAudioProcessorEditor::paint (juce::Graphics& g)
 {
     g.fillAll (juce::Colour (0xff181818));
 
-    // App title.
-    g.setColour (juce::Colours::white);
-    g.setFont (juce::FontOptions (16.0f, juce::Font::bold));
-    g.drawText ("HitNoteDmx", 12, 6, getWidth() - 24, 22,
-                juce::Justification::centredLeft);
+    // App title — centred above the visualiser, flush with the top of the
+    // side panes. A light, gently letter-spaced flamingo-pink wordmark.
+    {
+        juce::Font title (juce::FontOptions ("Helvetica Neue", 22.0f, juce::Font::plain));
+        title.setExtraKerningFactor (0.12f);
+        g.setFont (title);
+        g.setColour (juce::Colour (0xfff48fb1));   // soft flamingo pink
+        g.drawText ("Flamingo Hitmix Lightshow", titleArea,
+                    juce::Justification::centred, false);
+    }
 
     // Pane cards.
     auto card = [&g] (juce::Rectangle<int> r, const juce::String& title)
@@ -169,30 +177,35 @@ void HitNoteDmxAudioProcessorEditor::paint (juce::Graphics& g)
         if (r.isEmpty()) return;
         g.setColour (juce::Colour (0xff262626));
         g.fillRoundedRectangle (r.toFloat(), 6.0f);
+        if (title.isEmpty()) return;   // panel only, no header
         g.setColour (juce::Colour (0xff7a7a7a));
         g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
         g.drawText (title.toUpperCase(), r.getX() + 10, r.getY() + 6, r.getWidth() - 20, 12,
                     juce::Justification::centredLeft);
     };
-    card (leftPaneArea,  "Controls");
-    card (rightPaneArea, "Triggers - click to toggle / combine");
+    card (leftPaneArea,  {});   // controls: panel only, title removed (obvious)
+    card (rightPaneArea, {});   // triggers: panel only, title removed
     // Middle pane is the opaque visualiser; no card needed behind it.
 }
 
 void HitNoteDmxAudioProcessorEditor::resized()
 {
     auto area = getLocalBounds().reduced (12);
-    area.removeFromTop (24);  // app-title bar painted in paint()
 
     const int gap = 12;
     leftPaneArea  = area.removeFromLeft (240);
     area.removeFromLeft (gap);
-    rightPaneArea = area.removeFromRight (430);
+    rightPaneArea = area.removeFromRight (600);
     area.removeFromRight (gap);
     midPaneArea   = area;
 
-    // Content inset inside the left card (leave room for the card title).
-    auto leftContent = leftPaneArea.reduced (10).withTrimmedTop (14);
+    // Title strip above the visualiser, flush with the top of the side panes;
+    // the visualiser drops below it.
+    titleArea   = midPaneArea.removeFromTop (30);
+    midPaneArea.removeFromTop (4);
+
+    // Content inset inside the left card (no card title any more).
+    auto leftContent = leftPaneArea.reduced (10).withTrimmedTop (4);
 
     // ---- LEFT pane: knobs (top) + MIDI log (middle) + utility buttons (bottom) ----
     {
@@ -210,14 +223,12 @@ void HitNoteDmxAudioProcessorEditor::resized()
 
         // Utility controls pinned to the bottom: status line + the three
         // big buttons. The MIDI log takes whatever is left in between.
-        auto controls = leftContent.removeFromBottom (150);
+        auto controls = leftContent.removeFromBottom (94);
         connectUsbButton.setBounds (controls.removeFromTop (32));
-        controls.removeFromTop (6);
-        disconnectButton.setBounds (controls.removeFromTop (32));
         controls.removeFromTop (6);
         blackoutButton.setBounds (controls.removeFromTop (32));
         controls.removeFromTop (6);
-        deviceStatusLabel.setBounds (controls);  // remaining (~36px, wraps to 2 lines)
+        deviceStatusLabel.setBounds (controls);  // remaining (~18px, one line)
 
         leftContent.removeFromBottom (8);
         midiLogView.setBounds (leftContent);
@@ -226,12 +237,9 @@ void HitNoteDmxAudioProcessorEditor::resized()
     // ---- MIDDLE pane: the rig visualiser ----
     dmxView.setBounds (midPaneArea);
 
-    // ---- RIGHT pane: the clickable trigger menu (3 columns, no scroll) ----
-    {
-        auto rightContent = rightPaneArea.reduced (8).withTrimmedTop (16);
-        triggerMenu.layoutForWidth (rightContent.getWidth());
-        triggerMenu.setBounds (rightContent.withHeight (triggerMenu.preferredHeight()));
-    }
+    // ---- RIGHT pane: the transposed piano-roll trigger grid (no scroll) ----
+    // The menu fills the whole card; its rows scale to the height.
+    triggerMenu.setBounds (rightPaneArea.reduced (4));
 }
 
 void HitNoteDmxAudioProcessorEditor::buttonClicked (juce::Button* b)
@@ -244,12 +252,6 @@ void HitNoteDmxAudioProcessorEditor::buttonClicked (juce::Button* b)
             appendLog ("[usb] connect failed");
         else
             appendLog ("[usb] connected");
-        refreshDeviceStatus();
-    }
-    else if (b == &disconnectButton)
-    {
-        proc.getDmx().disconnect();
-        appendLog ("[usb] disconnected");
         refreshDeviceStatus();
     }
     else if (b == &blackoutButton)
@@ -286,6 +288,10 @@ void HitNoteDmxAudioProcessorEditor::timerCallback()
         ++drained;
     }
     flushLogIfDirty();
+
+    // Light up trigger tiles whose notes are currently sounding (MIDI + preview).
+    proc.getHeldPitches (heldScratch);
+    triggerMenu.setLiveNotes (heldScratch);
 
     // Refresh the live DMX preview only when something actually changed.
     dmxView.repaintIfChanged();

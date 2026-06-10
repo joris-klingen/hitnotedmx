@@ -12,7 +12,8 @@ Workflow: draw MIDI clips on a track in your DAW, route them to
 step. It also runs as a **Standalone** app for previewing without a DAW.
 
 The note vocabulary (spot triggers, bar selectors, pixel zones, dynamic
-recipes, two palette ranges, blackout) is the plugin's own; the in-editor
+recipes, two palette ranges) is the plugin's own and laid out by octave —
+each section starts on a C so it lines up with the keyboard. The in-editor
 **trigger menu** documents every note and lets you click to preview it.
 
 ## Status
@@ -20,7 +21,7 @@ recipes, two palette ranges, blackout) is the plugin's own; the in-editor
 | Phase | What it does | State |
 |-------|--------------|-------|
 | Skeleton | Builds; accepts MIDI; logs note activity in the editor | **shipped** |
-| Recipes | chase_up/down, ping_pong, snake, sine_wave, sparkle, breathe, sweep_up/down, strobe, kick_pulse, alt_swap | **shipped** (12 dynamics; more planned) |
+| Recipes | Chases (chase, ping-pong, snake, sweep, diagonals, waves, expand/contract), Breathes (sine, ripple, halo, moon, soft ball, aurora), Wild (sparkle, strobe, alt swap, rain), Multicolor (rainbow, comet, VU, fire, desert) | **shipped** (26 dynamics across 4 feel-groups) |
 | Composition | Mask intersection across utility / static / dynamic layers, primary/secondary palette routing, spot RGBW | **shipped** |
 | Colour fade | Velocity-driven linear fade between palette colours (soft black note = slow fade-to-black) | **shipped** |
 | Master dims | Automatable LED + spot master-dim params (MIDI-mappable) | **shipped** |

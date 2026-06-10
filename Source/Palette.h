@@ -7,16 +7,21 @@ namespace hitnotedmx
 
 // 24-entry colour palette.
 //
-// Octaves 4-5 (MIDI 36..59) → primary palette.
-// Octaves 6-7 (MIDI 60..83) → secondary palette.
-// Both palettes use the same 24 colors; the index is `pitch - palette_start`.
+// Palettes start on a C so they line up with the keyboard (C3 = MIDI 60):
+//   MIDI 84..107 (C5..B6) → primary palette   (two octaves, all 24 colours).
+//   MIDI 108..119 (C7..B7) → secondary palette (ONE octave: colours 0..11).
+// Secondary is a single octave because a second would run past G8 (127), the
+// top of MIDI. Both palettes index the same table via `pitch - palette_start`.
 
 struct PaletteColor { float r, g, b; };
 
-inline constexpr int kPaletteSize          = 24;
-inline constexpr int kPrimaryPaletteStart  = 36;
-inline constexpr int kSecondaryPaletteStart = 60;
-inline constexpr int kBlackoutNote         = 84;
+inline constexpr int kPaletteSize           = 24;
+inline constexpr int kPrimaryPaletteStart   = 84;
+inline constexpr int kSecondaryPaletteStart = 108;
+inline constexpr int kSecondaryPaletteSize  = 12;   // secondary is one octave
+// One past the last secondary colour — exclusive upper bound of the palette
+// range (no blackout note here; a hard kill is the dim knobs / C-2 / Blackout).
+inline constexpr int kSecondaryPaletteEnd   = kSecondaryPaletteStart + kSecondaryPaletteSize;  // 120
 
 inline constexpr std::array<PaletteColor, kPaletteSize> kPalette {{
     { 0.000f, 0.000f, 0.000f },  //  0  Black

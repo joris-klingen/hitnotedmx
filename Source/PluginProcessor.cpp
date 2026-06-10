@@ -212,6 +212,14 @@ void HitNoteDmxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     }
 }
 
+void HitNoteDmxAudioProcessor::getHeldPitches (std::vector<int>& out) const
+{
+    out.clear();
+    for (int p = 0; p < MidiState::kNumPitches; ++p)
+        if (midiState.isActive (static_cast<std::uint8_t> (p)))
+            out.push_back (p);
+}
+
 juce::AudioProcessorEditor* HitNoteDmxAudioProcessor::createEditor()
 {
     return new HitNoteDmxAudioProcessorEditor (*this);
@@ -242,8 +250,12 @@ void HitNoteDmxAudioProcessor::setPreviewPitches (const std::vector<int>& pitche
     bool hasColour = false, hasStructural = false;
     for (int p : pitches)
     {
-        if (p >= kPrimaryPaletteStart && p < kBlackoutNote) hasColour = true;
-        else if (p >= 0 && p < kPrimaryPaletteStart)        hasStructural = true;
+        // Self-coloured recipes (Multicolor bank) carry their own colour, so
+        // they count as colour, not structure.
+        if ((p >= kPrimaryPaletteStart && p < kSecondaryPaletteEnd) || isColorDynPitch (p))
+            hasColour = true;
+        else if (p >= 0 && p < kPrimaryPaletteStart)
+            hasStructural = true;  // spots / bars / zones / brightness dynamics
         if (n < kMaxPreview) next[static_cast<size_t> (n++)] = p;
     }
     if (hasStructural && ! hasColour)

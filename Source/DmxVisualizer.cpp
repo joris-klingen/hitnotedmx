@@ -102,21 +102,23 @@ void DmxVisualizer::rebuildCache()
 
     g.fillAll (juce::Colour (0xff141414));
 
-    const int spotSize    = 56;
-    const int spotSpacing = 24;
-    const int spotLabelH  = 14;
+    const int barW       = 32;   // ~2:1 cells (was 64); spots no longer stack on top
+    const int barSpacing = 10;
+    const int cellH      = 16;
+    const int spotSize   = 52;
+    const int spotGap    = 26;   // breathing room between a spot and the grid
 
-    const int barW       = 64;
-    const int barSpacing = 12;
-    const int cellH      = 18;
     const int barsTotalW = kNumBars * barW + (kNumBars - 1) * barSpacing;
-    const int barsTotalH = kPixelsPerBar * cellH;
-    const int originX    = (w - barsTotalW) / 2;
 
-    // ---- Spots (top row) -----------------------------------------------
-    const int spotsTotalW = kNumSpots * spotSize + (kNumSpots - 1) * spotSpacing;
-    const int spotX0      = (w - spotsTotalW) / 2;
-    const int spotY       = 10;
+    // Whole rig laid out horizontally: spot_l | bar grid | spot_r, centred.
+    const int rigW    = spotSize + spotGap + barsTotalW + spotGap + spotSize;
+    const int rigX    = (w - rigW) / 2;
+    const int originY = 8;                          // top of the bars
+    const int barsX   = rigX + spotSize + spotGap;  // left edge of bar 1
+
+    // ---- Spots flanking the grid, top-aligned with the bars -------------
+    const int spotY = originY;
+    const int spotX[kNumSpots] = { rigX, barsX + barsTotalW + spotGap };
 
     for (int s = 0; s < kNumSpots; ++s)
     {
@@ -127,25 +129,17 @@ void DmxVisualizer::rebuildCache()
         const float b   = values.get (spot.blue());
         const float ww  = values.get (spot.white());
 
-        const int x = spotX0 + s * (spotSize + spotSpacing);
+        const int x = spotX[s];
         g.setColour (rgbwToScreen (r, gv, b, ww, dim));
         g.fillEllipse (static_cast<float> (x), static_cast<float> (spotY),
                        static_cast<float> (spotSize), static_cast<float> (spotSize));
-
-        g.setColour (juce::Colours::lightgrey);
-        g.setFont (juce::FontOptions (10.0f));
-        g.drawText (s == 0 ? "spot_l" : "spot_r",
-                    x, spotY + spotSize + 2, spotSize, spotLabelH,
-                    juce::Justification::centred);
     }
 
-    // ---- Bars (below the spots) ----------------------------------------
-    const int originY = spotY + spotSize + spotLabelH + 12;
-
+    // ---- Bars (unlabelled) ----------------------------------------------
     for (int barIdx = 0; barIdx < kNumBars; ++barIdx)
     {
         const auto& bar = kBars[barIdx];
-        const int x = originX + barIdx * (barW + barSpacing);
+        const int x = barsX + barIdx * (barW + barSpacing);
 
         for (int pixel = 1; pixel <= bar.pixels; ++pixel)
         {
@@ -158,12 +152,6 @@ void DmxVisualizer::rebuildCache()
             g.setColour (juce::Colour::fromRGB (toByte (r), toByte (gv), toByte (b)));
             g.fillRect (x, originY + row * cellH, barW, cellH - 2);
         }
-
-        g.setColour (juce::Colours::lightgrey);
-        g.setFont (juce::FontOptions (10.0f));
-        g.drawText ("bar_" + juce::String (barIdx + 1),
-                    x, originY + barsTotalH + 2, barW, 14,
-                    juce::Justification::centred);
     }
 }
 
