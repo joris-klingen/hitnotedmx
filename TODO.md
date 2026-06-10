@@ -5,7 +5,20 @@ architecture lives in [STATUS.md](STATUS.md).
 
 ## Show prep
 
-1. **Ship with ~100 demo MIDI clips** — a bundled library of clips that
+1. **DMX link resilience — auto-reconnect (RELIABILITY, do before a show)**
+   — the engine is robust, but the USB driver has no recovery: in
+   `EnttecProDmx::hiResTimerCallback` a single failed write calls
+   `closePort()` + `connected=false` and then the timer just returns forever,
+   so **one transient USB hiccup (wiggled cable, hub blip, brief stall) kills
+   output until someone manually clicks Connect** — i.e. lights-out mid-show.
+   Fix: on send failure keep the timer retrying `openPort()` + re-handshake
+   every ~1 s instead of latching off. Also make the write non-blocking
+   (`O_NONBLOCK` / write timeout, drop the frame on `EAGAIN`) so a stalled
+   device can't freeze output on the last frame. ~Half-day incl. the real
+   unplug/replug hardware testing, which is the bulk of it. One file, no
+   architectural change.
+
+2. **Ship with ~100 demo MIDI clips** — a bundled library of clips that
    showcase the vocabulary so a new user has ready-made examples to drop on
    a `HitNoteDmx` track: one clip per recipe (each chase/breathe/wild/
    multicolor), palette-routing demos (primary vs soft-velocity secondary),
@@ -14,14 +27,14 @@ architecture lives in [STATUS.md](STATUS.md).
    format (`.mid` files vs an Ableton `.als`/rack) and where they live in the
    repo; document how to load them in the README.
 
-2. **Drag a MIDI clip from the plugin into the DAW** — once a selection is
+3. **Drag a MIDI clip from the plugin into the DAW** — once a selection is
    built by clicking tiles in the trigger menu, let the user drag that latched
    set out of the plugin as a MIDI clip (the active pitches as notes) and drop
    it onto a track. Turns the menu into a quick clip builder and pairs with the
-   demo-clip library (#1). JUCE `performExternalDragDropOfFiles` on a generated
+   demo-clip library (#2). JUCE `performExternalDragDropOfFiles` on a generated
    temp `.mid` is the likely path.
 
-3. **Visually tune the recipe banks** — all four feel-group octaves are now
+4. **Visually tune the recipe banks** — all four feel-group octaves are now
    full (48 recipes), implemented against numeric checks and ASCII-frame
    renders, not yet judged on real hardware. The newest fills (Wild:
    lightning/glitch/bounce/zigzag/…; Multicolor: night sky, skyline, embers,
@@ -29,7 +42,7 @@ architecture lives in [STATUS.md](STATUS.md).
    band widths, gaussian radii and hue ramps are all single-constant tweaks
    in `Recipes.cpp`.
 
-4. **Pixel-density: re-roll, taste check, and C8 note controls** — the density
+5. **Pixel-density: re-roll, taste check, and C8 note controls** — the density
    gate drops pixels in a per-bar-even random order (avalanche hash, rank-
    normalised per bar; the old diagonal banding is fixed). Open work:
    - **Re-roll the thinned subset on each colour-note trigger** so the dropped
@@ -42,7 +55,7 @@ architecture lives in [STATUS.md](STATUS.md).
 
 ## Housekeeping
 
-5. **Re-author pixel zones natively for 18 pixels** — the 9 "zones" are a
+6. **Re-author pixel zones natively for 18 pixels** — the 9 "zones" are a
    fossil of the old 9-pixel rig: each is authored as one zone then stretched
    2× to the physical pixels (`zone()` in `Composition.cpp`), while Even/Odd/
    Thirds are authored natively for 18. Two mental models for grouping pixels
