@@ -83,3 +83,31 @@ target_link_libraries(HitNoteDmx PRIVATE
     juce::juce_recommended_lto_flags
     juce::juce_recommended_warning_flags
 )
+
+# ---- mapping-tool -----------------------------------------------------------
+# A console tool that links the plugin's TriggerVocabulary (the single source
+# of truth for the note mapping). It dumps / verifies the frozen mapping
+# snapshots in `mappings/`, and is where the clip migration converter + RGB
+# importer will live. Reuses the vocabulary, so it can never drift.
+juce_add_console_app(mapping-tool PRODUCT_NAME "mapping-tool")
+target_sources(mapping-tool PRIVATE
+    tools/MappingTool.cpp
+    Source/TriggerVocabulary.cpp
+)
+target_include_directories(mapping-tool PRIVATE Source)
+target_compile_definitions(mapping-tool PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+)
+target_link_libraries(mapping-tool PRIVATE
+    juce::juce_core
+    juce::juce_recommended_config_flags
+    juce::juce_recommended_warning_flags
+)
+
+# Guard against accidental mapping drift: the current vocabulary must match the
+# frozen snapshot for kMappingVersion. If you changed a note's meaning on
+# purpose, bump kMappingVersion and re-freeze (see mappings/README.md).
+enable_testing()
+add_test(NAME mapping-frozen
+         COMMAND mapping-tool check "${CMAKE_CURRENT_SOURCE_DIR}/mappings")

@@ -6,6 +6,12 @@
 namespace hitnotedmx::vocab
 {
 
+// Bump whenever any note's MEANING changes (a trigger moves, a colour is
+// recoloured, a label is repurposed). Each version has a frozen snapshot in
+// `mappings/v<N>.tsv` (note → chainName); the migration tool diffs two
+// snapshots to convert clips across versions. Freeze procedure: mappings/README.md.
+inline constexpr int kMappingVersion = 1;
+
 // The trigger vocabulary — the SINGLE source of truth for what each MIDI note
 // does and what it's called. Both the on-screen trigger menu (TriggerMenu) and
 // the Ableton trigger-rack namer (Showcase::installRack) read it from here, so
