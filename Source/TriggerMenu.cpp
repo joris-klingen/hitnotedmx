@@ -101,7 +101,7 @@ void TriggerMenu::buildModel()
           "Moon rise", "Soft ball", "Drift", "Aurora", "Shimmer", "Sway" }));
 
     columns.push_back (trigCol ("Wild", kWildStart,
-        { "Sparkle", "Sparkle few", "Strobe", "Lightning", "Glitch", "Static",
+        { "Strobe", "Sparkle", "Sparkle few", "Lightning", "Glitch", "Static",
           "Rain", "Alt swap", "Bounce", "Fast ball", "Zigzag", "Converge" }));
 
     // Multicolor spans two octaves (two columns of self-coloured recipes).

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "Composition.h"  // DmxValues
@@ -38,12 +39,12 @@ public:
     // editor's GUI timer.
     void repaintIfChanged();
 
-    // Mirror the driver's strobe shutter on screen. While active, a
-    // dedicated timer flashes the preview to black on alternate ticks at
-    // the strobe frequency; otherwise the timer is stopped (zero cost).
-    // The preview is NOT phase-locked to the real DMX output (different
-    // clocks) — it just conveys that a strobe is running.
-    void setStrobeActive (bool active);
+    // Mirror the driver's strobe shutter on screen. `hz` is the repeat rate
+    // (0 = off). A dedicated timer at the send rate keeps the preview lit for
+    // a single tick per period and black for the rest, matching the driver's
+    // one-frame flash; the gap grows as hz drops. The preview is NOT
+    // phase-locked to the real DMX output — it just conveys the strobe.
+    void setStrobe (float hz);
 
 private:
     void timerCallback() override;
@@ -57,8 +58,9 @@ private:
     juce::Image cachedImage;  // ARGB; fully covers the component bounds
     std::array<std::uint8_t, kFingerprintSize> lastFingerprint {};
 
-    bool strobeActive { false };  // is the strobe-flash timer running?
-    bool strobeDark   { false };  // current flash phase (true = blanked)
+    int           strobePeriod { 0 };  // frames per flash period (0 = strobe off)
+    std::uint64_t strobeFrame  { 0 };  // preview send-frame counter
+    bool          strobeDark   { false };  // current flash phase (true = blanked)
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DmxVisualizer)
 };

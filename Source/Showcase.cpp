@@ -62,7 +62,7 @@ const int kChaseUp = kChasesStart + 0, kChaseDn = kChasesStart + 1;
 const int kSnake   = kChasesStart + 5;
 const int kDiagUp  = kChasesStart + 3, kDiagDn = kChasesStart + 4;
 const int kRipple  = kBreathesStart + 2;
-const int kSparkle = kWildStart + 0;
+const int kSparkle = kWildStart + 1;
 const int kRainbow = kColorDynStart + 0, kFire = kColorDynStart + 4;
 const int kOcean   = kColorDynStart + 9, kPolice = kColorDynStart + 20;
 

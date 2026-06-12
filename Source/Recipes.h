@@ -42,12 +42,18 @@ inline constexpr int kNumColorDyn   = 24;
 // Strobe is NOT a per-pixel recipe: it is a global shutter applied at the
 // DMX driver's send loop (see EnttecProDmx::setStrobeHz) so it stays
 // perfectly synced to the output clock and free of audio-block jitter. It
-// still occupies a slot in the Wild bank — its recipe-table entry is null
-// and computeDmx treats it as a no-op; the processor reads the held note and
-// drives the driver shutter. 10 Hz = 2-on / 2-off at the 40 Hz send rate
-// (exactly even); 20 Hz is the hardware max.
-inline constexpr int    kStrobePitch = kWildStart + 2;  // 50
-inline constexpr double kStrobeHz    = 10.0;
+// sits at the top of the Wild bank (C2) — its recipe-table entry is null and
+// computeDmx treats it as a no-op except to light the rig white so the
+// shutter has something to chop; the processor reads the held note's velocity
+// and drives the driver shutter rate.
+//
+// The flash is always the SHORTEST possible: a single emitted frame lit
+// (= one 20 Hz half-cycle at the 40 Hz send rate). Velocity sets only the
+// REPEAT rate — i.e. the length of the black gap — from 1 Hz (long gaps) at
+// low velocity to 20 Hz (one-lit / one-dark, the hardware max) at full.
+inline constexpr int    kStrobePitch  = kWildStart + 0;  // 48 (C2)
+inline constexpr double kStrobeMinHz  = 1.0;             // velocity 1
+inline constexpr double kStrobeMaxHz  = 20.0;            // velocity 127 (hw max)
 
 // Per-recipe velocity exceptions handled in computeDmx:
 //   • Wild is beat-synced (velocity → 1/16..1/1 division) EXCEPT sparkle /
@@ -55,8 +61,8 @@ inline constexpr double kStrobeHz    = 10.0;
 //   • Breathes run at half speed EXCEPT ripple.
 //   • VU meter is beat-LOCKED (timing always on the beat) and velocity sets
 //     its range/gain instead of speed.
-inline constexpr int kSparklePitch    = kWildStart + 0;      // 48
-inline constexpr int kSparkleFewPitch = kWildStart + 1;      // 49
+inline constexpr int kSparklePitch    = kWildStart + 1;      // 49
+inline constexpr int kSparkleFewPitch = kWildStart + 2;      // 50
 inline constexpr int kRipplePitch     = kBreathesStart + 2;  // 38
 inline constexpr int kVuMeterPitch    = kColorDynStart + 2;  // 62
 

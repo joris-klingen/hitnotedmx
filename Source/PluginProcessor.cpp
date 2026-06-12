@@ -195,10 +195,16 @@ void HitNoteDmxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     // Strobe is a global shutter applied in the DMX driver's send loop (so
     // it stays locked to the output clock and free of audio-block jitter).
-    // Here we only publish whether the strobe note is held; the driver does
-    // the frame-synced on/off gating.
-    const bool strobeHeld = midiState.isActive (static_cast<std::uint8_t> (kStrobePitch));
-    dmx.setStrobeHz (strobeHeld ? static_cast<float> (kStrobeHz) : 0.0f);
+    // Velocity sets the repeat rate (1..20 Hz); the driver keeps the flash a
+    // single send frame and only stretches the black gap. 0 Hz = off.
+    const auto strobePitch = static_cast<std::uint8_t> (kStrobePitch);
+    float strobeRate = 0.0f;
+    if (midiState.isActive (strobePitch))
+    {
+        const float vel = static_cast<float> (midiState.get (strobePitch).velocity) / 127.0f;
+        strobeRate = static_cast<float> (kStrobeMinHz + (kStrobeMaxHz - kStrobeMinHz) * vel);
+    }
+    dmx.setStrobeHz (strobeRate);
 
     // 4. Push every rig channel out to the ENTTEC widget. The driver
     //    holds a CriticalSection internally.

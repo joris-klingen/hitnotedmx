@@ -964,9 +964,9 @@ constexpr std::array<DynamicFn, kNumBreathes> kBreathesTable {{
 }};
 
 constexpr std::array<DynamicFn, kNumWild> kWildTable {{
-    &sparkle,       // 48
-    &sparkle_few,   // 49
-    nullptr,        // 50 strobe — global shutter applied at the DMX driver
+    nullptr,        // 48 strobe (C2) — global shutter applied at the DMX driver
+    &sparkle,       // 49
+    &sparkle_few,   // 50
     &lightning,     // 51
     &glitch,        // 52
     &static_noise,  // 53

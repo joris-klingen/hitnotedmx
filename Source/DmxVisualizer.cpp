@@ -1,6 +1,5 @@
 #include "DmxVisualizer.h"
 
-#include "Recipes.h"  // kStrobeHz
 #include "Rig.h"
 
 namespace hitnotedmx
@@ -56,7 +55,7 @@ void DmxVisualizer::resized()
 
 void DmxVisualizer::paint (juce::Graphics& g)
 {
-    if (strobeActive && strobeDark)
+    if (strobePeriod > 0 && strobeDark)
         g.fillAll (juce::Colour (0xff141414));   // strobe blank: rig dark, panel bg unchanged
     else if (cachedImage.isValid())
         g.drawImageAt (cachedImage, 0, 0);
@@ -64,19 +63,25 @@ void DmxVisualizer::paint (juce::Graphics& g)
         g.fillAll (juce::Colour (0xff141414));
 }
 
-void DmxVisualizer::setStrobeActive (bool active)
+void DmxVisualizer::setStrobe (float hz)
 {
-    if (active == strobeActive)
+    // One lit frame per period, the rest black — same shape as the driver
+    // shutter (EnttecProDmx::sendDmxFrame). The timer runs at the send rate
+    // so the lit flash is a single tick; the period sets the black gap.
+    constexpr double kSendRateHz = 40.0;   // matches EnttecProDmx::kSendRateHz
+    const int period = hz > 0.0f
+                     ? juce::jmax (2, juce::roundToInt (kSendRateHz / (double) hz))
+                     : 0;
+
+    if (period == strobePeriod)
         return;
 
-    strobeActive = active;
-    if (active)
+    strobePeriod = period;
+    if (period > 0)
     {
-        // Toggle twice per visible cycle, so the on/off rate matches the
-        // strobe frequency. 20 Hz max → 40 Hz timer, well under the display
-        // refresh; the callback is a single blit so cost is negligible.
-        strobeDark = false;
-        startTimerHz (juce::jmax (1, juce::roundToInt (2.0 * kStrobeHz)));
+        strobeFrame = 0;
+        strobeDark  = false;
+        startTimerHz (juce::roundToInt (kSendRateHz));
     }
     else
     {
@@ -88,8 +93,14 @@ void DmxVisualizer::setStrobeActive (bool active)
 
 void DmxVisualizer::timerCallback()
 {
-    strobeDark = ! strobeDark;
-    repaint();
+    ++strobeFrame;
+    const bool dark = strobePeriod > 0
+                   && (strobeFrame % static_cast<std::uint64_t> (strobePeriod)) != 0ull;
+    if (dark != strobeDark)
+    {
+        strobeDark = dark;
+        repaint();
+    }
 }
 
 void DmxVisualizer::rebuildCache()

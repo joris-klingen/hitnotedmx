@@ -448,6 +448,7 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
     int nRecipes = 0;
     int nColorRecipes = 0;
     bool dynamicLayerHeld = false;
+    bool strobeHeld = false;   // drives the rig white so the driver shutter has something to chop
 
     state.forEachHeld ([&] (std::uint8_t pitch, const HeldNote& n)
     {
@@ -457,7 +458,16 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
         {
             auto fn = getDynamicRecipe (pitch);
             if (fn == nullptr)
-                return;   // e.g. strobe (pitch 49) — applied as a driver-level shutter
+            {
+                // Strobe (pitch 48): no per-pixel recipe — the flash is a
+                // driver-level shutter. Here we just light the rig white (via
+                // the white-default path below) so the shutter chops white
+                // when strobe is held alone; a colour/recipe held alongside
+                // shows through instead.
+                if (pitch == kStrobePitch)
+                    strobeHeld = true;
+                return;
+            }
             dynamicLayerHeld = true;
             if (nRecipes >= kMaxRecipes)
                 return;
@@ -508,7 +518,7 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
     // a tile in the menu. Likewise default the secondary accent (used by soft-
     // velocity selectors and the spot 'col' triggers) to white. Seed the fade
     // state too, so a colour played next fades in from white rather than black.
-    const bool barLike = barLayerHeld || pixelLayerHeld || dynamicLayerHeld;
+    const bool barLike = barLayerHeld || pixelLayerHeld || dynamicLayerHeld || strobeHeld;
     if (barLike && primaryC.pitch < 0)
     {
         priR = priG = priB = 1.0f;

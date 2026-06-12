@@ -1,6 +1,7 @@
 #include "EnttecProDmx.h"
 
 #include <cerrno>
+#include <cmath>
 #include <cstring>
 
 #include <fcntl.h>
@@ -313,16 +314,18 @@ bool EnttecProDmx::sendDmxFrame()
 {
     bool dark = blackout.load();
 
-    // Strobe shutter — decided on the emitted-frame grid so the duty cycle
-    // is exactly even and locked to the DMX output clock (no audio-block
-    // coupling, no host-scheduling jitter in the on/off ratio). Whole frames
-    // alternate lit / black: even half-cycle = lit, odd = black.
+    // Strobe shutter — decided on the emitted-frame grid so it is locked to
+    // the DMX output clock (no audio-block coupling, no host-scheduling
+    // jitter). The flash is the SHORTEST possible: exactly one emitted frame
+    // lit per period, the rest of the period black. `hz` is the repeat rate
+    // (velocity-driven, 1..20 Hz); the lit frame is always one send tick
+    // (= one 20 Hz half-cycle), so only the black gap grows as hz drops.
     const float hz = strobeHz.load();
     if (hz > 0.0f)
     {
-        const double framesPerHalf = (double) kSendRateHz / (2.0 * (double) hz);
-        const auto   halfCycle     = (std::uint64_t) ((double) txFrame / framesPerHalf);
-        if ((halfCycle & 1ull) != 0)
+        const auto period = (std::uint64_t) juce::jmax (2.0,
+                                std::round ((double) kSendRateHz / (double) hz));
+        if ((txFrame % period) != 0ull)
             dark = true;
     }
     ++txFrame;

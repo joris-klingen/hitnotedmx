@@ -46,9 +46,10 @@ public:
     // Global strobe shutter, applied at send time so it is perfectly
     // synced to the DMX output clock and decoupled from the audio block
     // rate. hz <= 0 disables it (frames pass through unmodified). When
-    // enabled, whole frames alternate lit / black on the send-frame grid,
-    // giving an exactly even duty cycle. Cleanest at hz dividing
-    // kSendRateHz/2 (e.g. 10 Hz = 2 on / 2 off, 20 Hz = 1 on / 1 off = max).
+    // enabled, exactly one frame per period is lit and the rest are black:
+    // `hz` is the REPEAT rate, so the lit flash stays one send tick (the
+    // shortest, ~20 Hz half-cycle) while the black gap grows as hz drops
+    // (1 Hz = 1 lit / 39 black … 20 Hz = 1 lit / 1 black = max).
     void  setStrobeHz (float hz)                            { strobeHz.store (hz); }
     float getStrobeHz() const                               { return strobeHz.load(); }
 
