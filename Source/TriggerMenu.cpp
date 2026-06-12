@@ -292,7 +292,8 @@ void TriggerMenu::paint (juce::Graphics& g)
 
             if (cell.swatch)
             {
-                // Colour chips are squares (note name overlaid for reference).
+                // Colour chips are plain squares — no note name (the gutter
+                // letter + column octave already identify the note).
                 const auto r = cellR.reduced (kCellPad);
                 const int sq = juce::jmin (r.getWidth(), r.getHeight());
                 const auto sqRect = juce::Rectangle<int> (0, 0, sq, sq)
@@ -301,12 +302,6 @@ void TriggerMenu::paint (juce::Graphics& g)
                 g.fillRect (sqRect);
                 g.setColour (on ? juce::Colours::white : juce::Colour (0x40ffffff));
                 g.drawRect (sqRect, on ? 2 : 1);
-
-                const bool light = cell.colour.getPerceivedBrightness() > 0.5f;
-                g.setColour (light ? juce::Colours::black.withAlpha (0.65f)
-                                   : juce::Colours::white.withAlpha (0.8f));
-                g.setFont (juce::FontOptions (6.5f));
-                g.drawText (cell.label, sqRect, juce::Justification::centred);
             }
             else
             {

@@ -1,5 +1,7 @@
 #include "DmxVisualizer.h"
 
+#include <cmath>
+
 #include "Rig.h"
 
 namespace hitnotedmx
@@ -7,10 +9,28 @@ namespace hitnotedmx
 
 namespace
 {
+// The fixtures' own dimming curve makes low DMX values already fairly bright,
+// so a straight value→pixel map reads far too dark on screen — 30% looks
+// near-black while the real lights are clearly on. Lift the lows with a gamma
+// (~0.45, an sRGB-ish encode) so the preview tracks PERCEIVED output, not the
+// raw DMX byte. Applied only at display; the DMX values themselves are linear.
+constexpr float kVizGamma = 0.45f;
+
+float displayCurve (float v) noexcept
+{
+    return v <= 0.0f ? 0.0f : std::pow (v, kVizGamma);
+}
+
 juce::uint8 toByte (float v) noexcept
 {
     const int n = juce::jlimit (0, 255, static_cast<int> (v * 255.0f + 0.5f));
     return static_cast<juce::uint8> (n);
+}
+
+// Brightness-curved screen byte for a single linear channel value.
+juce::uint8 toScreenByte (float v) noexcept
+{
+    return toByte (displayCurve (v));
 }
 
 // Composite an RGBW + dimmer cell down to a screen RGB.
@@ -21,7 +41,18 @@ juce::Colour rgbwToScreen (float r, float g, float b, float w, float dim) noexce
     const float dr = juce::jlimit (0.0f, 1.0f, (r + w * 1.0f)  * dim);
     const float dg = juce::jlimit (0.0f, 1.0f, (g + w * 0.85f) * dim);
     const float db = juce::jlimit (0.0f, 1.0f, (b + w * 0.70f) * dim);
-    return juce::Colour::fromRGB (toByte (dr), toByte (dg), toByte (db));
+    return juce::Colour::fromRGB (toScreenByte (dr), toScreenByte (dg), toScreenByte (db));
+}
+
+// Small "dNNN" start-address caption, centred under a fixture of width
+// `fixtureW` whose bottom edge sits at `topY`. Drawn on the dark panel
+// background, so a fixed dim grey reads cleanly.
+void drawAddress (juce::Graphics& g, int address, int x, int topY, int fixtureW) noexcept
+{
+    g.setColour (juce::Colour (0xff808080));
+    g.setFont (juce::FontOptions (10.5f));
+    g.drawText ("d" + juce::String (address).paddedLeft ('0', 3),
+                x, topY + 2, fixtureW, 12, juce::Justification::centred, false);
 }
 }
 
@@ -109,22 +140,37 @@ void DmxVisualizer::rebuildCache()
         return;
 
     const int w = cachedImage.getWidth();
+    const int h = cachedImage.getHeight();
     juce::Graphics g (cachedImage);
 
     g.fillAll (juce::Colour (0xff141414));
 
     const int barW       = 32;   // ~2:1 cells (was 64); spots no longer stack on top
     const int barSpacing = 10;
-    const int cellH      = 16;
     const int spotSize   = 52;
     const int spotGap    = 26;   // breathing room between a spot and the grid
+    const int topPad     = 6;    // inset above the rig (≈ the cards' top inset)
+    const int bottomPad  = 2;    // inset below the captions
+    const int labelH     = 14;   // reserved under each fixture for the "dNNN" caption
+
+    // The bar grid fills the FULL pane height: top flush with the cards' top,
+    // captions flush with the cards' bottom. Row edges are interpolated across
+    // the available height so the rounding remainder is spread one pixel at a
+    // time over the rows (no pooled margin at either end) — `rowY(r)` is the
+    // top of screen-row r, and the grid bottom (rowY(nPix)) carries the
+    // captions.
+    const int originY = topPad;
+    const int gridH   = juce::jmax (kPixelsPerBar * 4, h - topPad - labelH - bottomPad);
+    auto rowY = [originY, gridH] (int screenRow)
+    {
+        return originY + (gridH * screenRow) / kPixelsPerBar;
+    };
 
     const int barsTotalW = kNumBars * barW + (kNumBars - 1) * barSpacing;
 
     // Whole rig laid out horizontally: spot_l | bar grid | spot_r, centred.
     const int rigW    = spotSize + spotGap + barsTotalW + spotGap + spotSize;
     const int rigX    = (w - rigW) / 2;
-    const int originY = 8;                          // top of the bars
     const int barsX   = rigX + spotSize + spotGap;  // left edge of bar 1
 
     // ---- Spots flanking the grid, top-aligned with the bars -------------
@@ -144,6 +190,9 @@ void DmxVisualizer::rebuildCache()
         g.setColour (rgbwToScreen (r, gv, b, ww, dim));
         g.fillEllipse (static_cast<float> (x), static_cast<float> (spotY),
                        static_cast<float> (spotSize), static_cast<float> (spotSize));
+
+        // Start DMX address, small, under the fixture.
+        drawAddress (g, spot.dimmer(), x, spotY + spotSize, spotSize);
     }
 
     // ---- Bars (unlabelled) ----------------------------------------------
@@ -160,9 +209,14 @@ void DmxVisualizer::rebuildCache()
             const float b  = values.get (ch[2]);
 
             const int row = bar.pixels - pixel;  // pixel 1 at the bottom
-            g.setColour (juce::Colour::fromRGB (toByte (r), toByte (gv), toByte (b)));
-            g.fillRect (x, originY + row * cellH, barW, cellH - 2);
+            const int y0  = rowY (row);
+            const int y1  = rowY (row + 1);
+            g.setColour (juce::Colour::fromRGB (toScreenByte (r), toScreenByte (gv), toScreenByte (b)));
+            g.fillRect (x, y0, barW, juce::jmax (1, y1 - y0 - 2));
         }
+
+        // Start DMX address, small, under the bar (flush with the pane bottom).
+        drawAddress (g, bar.dmxStart, x, rowY (bar.pixels), barW);
     }
 }
 

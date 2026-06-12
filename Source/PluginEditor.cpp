@@ -75,7 +75,7 @@ HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioP
     // so the visualiser height sets the minimum window height. Width fits the
     // left controls + the rig + the trigger grid (ten columns) + a narrow
     // far-right utility pane (click-velocity + drag placeholder).
-    setSize (1296, 360);
+    setSize (1168, 338);
 
     for (auto* btn : { &connectUsbButton, &blackoutButton, &initNamesButton, &showClipsButton })
     {
@@ -137,10 +137,10 @@ HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioP
     // Far-right pane: click-velocity slider — sets the velocity that previewed
     // (clicked) triggers are held at, so the velocity-mapped behaviours can be
     // auditioned without a keyboard.
-    clickVelLabel.setText ("CLICK VEL", juce::dontSendNotification);
+    clickVelLabel.setText ("VEL", juce::dontSendNotification);
     clickVelLabel.setJustificationType (juce::Justification::centred);
     clickVelLabel.setColour (juce::Label::textColourId, juce::Colours::white);
-    clickVelLabel.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+    clickVelLabel.setFont (juce::FontOptions (10.0f, juce::Font::bold));
     addAndMakeVisible (clickVelLabel);
 
     clickVelSlider.setRange (1.0, 127.0, 1.0);
@@ -148,15 +148,15 @@ HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioP
     clickVelSlider.setColour (juce::Slider::textBoxTextColourId, juce::Colours::white);
     clickVelSlider.setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
     clickVelSlider.setColour (juce::Slider::thumbColourId, juce::Colour (0xff39c6c0));
-    clickVelSlider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 50, 18);
+    clickVelSlider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 30, 15);
     clickVelSlider.onValueChange = [this]
         { proc.setPreviewVelocity (static_cast<int> (clickVelSlider.getValue())); };
     addAndMakeVisible (clickVelSlider);
 
-    dragPlaceholder.setText ("MIDI drag\noptions\n(soon)", juce::dontSendNotification);
+    dragPlaceholder.setText ("drag\n(soon)", juce::dontSendNotification);
     dragPlaceholder.setJustificationType (juce::Justification::centred);
     dragPlaceholder.setColour (juce::Label::textColourId, juce::Colour (0xff6a6a6a));
-    dragPlaceholder.setFont (juce::FontOptions (9.5f));
+    dragPlaceholder.setFont (juce::FontOptions (8.5f));
     addAndMakeVisible (dragPlaceholder);
 
     midiLogView.setMultiLine (true, false);
@@ -222,14 +222,16 @@ void HitNoteDmxAudioProcessorEditor::paint (juce::Graphics& g)
 
 void HitNoteDmxAudioProcessorEditor::resized()
 {
-    auto area = getLocalBounds().reduced (12);
+    // Tighter bottom inset than top so the panes don't float above a fat
+    // bottom margin (top keeps room for the title strip).
+    auto area = getLocalBounds().reduced (12, 0).withTrimmedTop (12).withTrimmedBottom (6);
 
     const int gap = 12;
     leftPaneArea  = area.removeFromLeft (240);
     area.removeFromLeft (gap);
-    extraPaneArea = area.removeFromRight (64);   // narrow far-right utility pane
+    extraPaneArea = area.removeFromRight (36);   // narrow far-right utility pane (slider)
     area.removeFromRight (gap);
-    rightPaneArea = area.removeFromRight (600);
+    rightPaneArea = area.removeFromRight (500);  // trigger grid — columns ~20% narrower
     area.removeFromRight (gap);
     midPaneArea   = area;
 
@@ -284,10 +286,10 @@ void HitNoteDmxAudioProcessorEditor::resized()
 
     // ---- FAR-RIGHT pane: click-velocity slider (top) + drag placeholder ----
     {
-        auto content = extraPaneArea.reduced (6);
+        auto content = extraPaneArea.reduced (2, 6);
         auto top = content.removeFromTop (content.getHeight() * 6 / 10);
         clickVelLabel.setBounds (top.removeFromTop (16));
-        clickVelSlider.setBounds (top.reduced (2, 2));
+        clickVelSlider.setBounds (top.reduced (0, 2));
         content.removeFromTop (8);
         dragPlaceholder.setBounds (content);
     }
