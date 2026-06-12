@@ -579,14 +579,15 @@ RecipeRGB comet (double t, int /*barIdx*/, int pixel, int nPix, int /*nBars*/, f
 
 RecipeRGB vu_meter (double t, int /*barIdx*/, int pixel, int nPix, int /*nBars*/, float gain) noexcept
 {
-    // Smooth meter, UNIFORM across all bars, pumping on the beat. Special case
-    // (handled in computeDmx): timing is always beat-LOCKED (t is not velocity-
-    // scaled), and velocity sets the RANGE/GAIN — `gain` in [0,1] scales how
-    // high the meter pumps.
-    const float ph    = static_cast<float> (std::fmod (t, 1.0));
-    const float range = 0.25f + 0.75f * std::clamp (gain, 0.05f, 1.0f);   // velocity → peak height
-    const float level = range * (0.35f + 0.65f * std::exp (-ph * 2.5f));  // beat pump + floor
-    const float y     = static_cast<float> (pixel) / static_cast<float> (nPix);
+    // Smooth meter, UNIFORM across all bars, beat-LOCKED (t isn't velocity-
+    // scaled — see computeDmx). Velocity sets the RANGE: it snaps to `peak` on
+    // each beat, then releases fast back to a 2-pixel green floor within the
+    // beat. peak = sqrt(gain) → vel 127 maxes out into the red, vel ~100 ≈ 16/18.
+    const float floorLvl = 2.0f / static_cast<float> (nPix);
+    const float peak     = std::sqrt (std::clamp (gain, 0.0f, 1.0f));
+    const float ph       = static_cast<float> (std::fmod (t, 1.0));
+    const float level    = floorLvl + (peak - floorLvl) * std::exp (-ph * 4.0f);
+    const float y        = static_cast<float> (pixel) / static_cast<float> (nPix);
     if (y > level)
         return { 0.0f, 0.0f, 0.0f };
     if (y < 0.5f) { const float u = y / 0.5f;          return { u, 0.4f + 0.5f * u, 0.0f }; }
@@ -925,76 +926,78 @@ namespace
 // One table per feel-group; entry order MUST match the menu's row order and
 // the per-octave note assignment (Chases at C0, Breathes C1, Wild C2,
 // Multicolor C3).
+// Order is grouped by motion/feel (vertical → diagonal → snakes → helix/wave →
+// radial → game). MUST match the menu label lists in TriggerMenu.cpp.
 constexpr std::array<DynamicFn, kNumChases> kChasesTable {{
     &chase_up,    // 24
     &chase_down,  // 25
     &ping_pong,   // 26
-    &snake,       // 27
-    &spiral,      // 28
-    &pong,        // 29
-    &diag_up,     // 30
-    &diag_down,   // 31
+    &diag_up,     // 27
+    &diag_down,   // 28
+    &snake,       // 29
+    &snake_h,     // 30
+    &spiral,      // 31
     &wave_train,  // 32
     &expand,      // 33
     &contract,    // 34
-    &snake_h,     // 35
+    &pong,        // 35
 }};
 
 constexpr std::array<DynamicFn, kNumBreathes> kBreathesTable {{
-    &sine_wave,   // 36
-    &breathe,     // 37
+    &breathe,     // 36
+    &sine_wave,   // 37
     &ripple,      // 38
-    &halo,        // 39
-    &moon_rise,   // 40
-    &soft_ball,   // 41
-    &aurora,      // 42
-    &ripple_h,    // 43
-    &bloom,       // 44
-    &shimmer,     // 45
-    &sway,        // 46
-    &drift,       // 47
+    &ripple_h,    // 39
+    &bloom,       // 40
+    &halo,        // 41
+    &moon_rise,   // 42
+    &soft_ball,   // 43
+    &drift,       // 44
+    &aurora,      // 45
+    &shimmer,     // 46
+    &sway,        // 47
 }};
 
 constexpr std::array<DynamicFn, kNumWild> kWildTable {{
     &sparkle,       // 48
-    nullptr,        // 49 strobe — global shutter applied at the DMX driver
-    &alt_swap,      // 50
-    &rain,          // 51
-    &lightning,     // 52
+    &sparkle_few,   // 49
+    nullptr,        // 50 strobe — global shutter applied at the DMX driver
+    &lightning,     // 51
+    &glitch,        // 52
     &static_noise,  // 53
-    &glitch,        // 54
-    &bounce,        // 55
-    &zigzag,        // 56
-    &sparkle_few,   // 57
-    &fast_ball,     // 58
+    &rain,          // 54
+    &alt_swap,      // 55
+    &bounce,        // 56
+    &fast_ball,     // 57
+    &zigzag,        // 58
     &converge,      // 59
 }};
 
 constexpr std::array<DynamicColorFn, kNumColorDyn> kColorTable {{
-    &rainbow_chase,   // 60  ── octave C3
+    &rainbow_chase,   // 60  ── octave C3: meters → fire → water/nature
     &comet,           // 61
-    &vu_meter,        // 62
-    &fire,            // 63
-    &desert_breathe,  // 64
-    &vu_smooth,       // 65
-    &night_sky,       // 66
-    &police,          // 67
-    &embers,          // 68
-    &plasma,          // 69
-    &ocean,           // 70
-    &nebula,          // 71
-    &sunset,          // 72  ── octave C4
-    &forest,          // 73
-    &lava,            // 74
-    &borealis,        // 75
-    &candy,           // 76
-    &magma,           // 77
+    &vu_meter,        // 62  (kept at offset 2 — velocity-gain exception)
+    &vu_smooth,       // 63
+    &fire,            // 64
+    &embers,          // 65
+    &magma,           // 66
+    &lava,            // 67
+    &heatmap,         // 68
+    &ocean,           // 69
+    &forest,          // 70
+    &desert_breathe,  // 71
+    &sunset,          // 72  ── octave C4: sky/space → party/abstract
+    &twilight,        // 73
+    &borealis,        // 74
+    &night_sky,       // 75
+    &galaxy,          // 76
+    &nebula,          // 77
     &storm,           // 78
-    &galaxy,          // 79
-    &blocks,          // 80
+    &plasma,          // 79
+    &police,          // 80
     &disco,           // 81
-    &twilight,        // 82
-    &heatmap,         // 83
+    &blocks,          // 82
+    &candy,           // 83
 }};
 }
 

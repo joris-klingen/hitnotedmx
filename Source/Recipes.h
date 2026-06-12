@@ -46,7 +46,7 @@ inline constexpr int kNumColorDyn   = 24;
 // and computeDmx treats it as a no-op; the processor reads the held note and
 // drives the driver shutter. 10 Hz = 2-on / 2-off at the 40 Hz send rate
 // (exactly even); 20 Hz is the hardware max.
-inline constexpr int    kStrobePitch = kWildStart + 1;  // 49
+inline constexpr int    kStrobePitch = kWildStart + 2;  // 50
 inline constexpr double kStrobeHz    = 10.0;
 
 // Per-recipe velocity exceptions handled in computeDmx:
@@ -56,7 +56,7 @@ inline constexpr double kStrobeHz    = 10.0;
 //   • VU meter is beat-LOCKED (timing always on the beat) and velocity sets
 //     its range/gain instead of speed.
 inline constexpr int kSparklePitch    = kWildStart + 0;      // 48
-inline constexpr int kSparkleFewPitch = kWildStart + 9;      // 57
+inline constexpr int kSparkleFewPitch = kWildStart + 1;      // 49
 inline constexpr int kRipplePitch     = kBreathesStart + 2;  // 38
 inline constexpr int kVuMeterPitch    = kColorDynStart + 2;  // 62
 

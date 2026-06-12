@@ -50,6 +50,15 @@ target_sources(HitNoteDmx PRIVATE
     Source/Composition.cpp
     Source/DmxVisualizer.cpp
     Source/TriggerMenu.cpp
+    Source/Showcase.cpp
+)
+
+# Showcase assets embedded in the binary (works identically for Standalone +
+# VST3, no fragile bundle-path lookups). The named trigger rack is the one
+# asset the plugin can't regenerate; the demo MIDI clips are produced at
+# runtime from the live vocabulary (see Showcase.cpp).
+juce_add_binary_data(HitNoteDmxData SOURCES
+    "assets/showcase/Ableton Rack/Hitnotenames.adg"
 )
 
 target_include_directories(HitNoteDmx PRIVATE
@@ -63,6 +72,7 @@ target_compile_definitions(HitNoteDmx PRIVATE
 )
 
 target_link_libraries(HitNoteDmx PRIVATE
+    HitNoteDmxData
     "-framework IOKit"
     "-framework CoreFoundation"
     juce::juce_audio_utils

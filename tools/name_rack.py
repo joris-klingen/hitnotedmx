@@ -87,22 +87,48 @@ def parse_palette_names(palette_h: Path) -> list[str]:
     return names
 
 
+# Short 2-letter prefix per group, so the named chains cluster and read
+# clearly in Ableton (e.g. "cp Red" vs "cs Red" vs "mc Rainbow").
+COLUMN_PREFIX = {
+    "Pixel zones": "pz",
+    "Chases": "ch",
+    "Breathes": "br",
+    "Wild": "wd",
+    "Multicolor": "mc",
+}
+
+
+def _prefix(column_title: str, label: str) -> str:
+    """The group prefix for a tile, given its column title and label."""
+    if column_title == "Spots & bars":  # one column mixes blackout / spots / bars
+        if label == "Blackout":
+            return "bk"
+        if label.startswith("Spot"):
+            return "sp"
+        if label.startswith("Bar"):
+            return "ba"
+        return ""
+    return COLUMN_PREFIX.get(column_title, "")
+
+
 def parse_label_columns(menu_cpp: Path, consts: dict[str, int]) -> dict[int, str]:
-    """Extract trigCol(...) calls from buildModel and map note -> label."""
+    """Extract trigCol(...) calls from buildModel and map note -> prefixed label."""
     text = menu_cpp.read_text()
     body = text[text.index("buildModel") :]
     notes: dict[int, str] = {}
 
     # trigCol ("Title", <octaveStartExpr>, { "a", "b", ... })
     call = re.compile(
-        r"trigCol\s*\(\s*\"[^\"]*\"\s*,\s*([^,]+?)\s*,\s*\{(.*?)\}\s*\)",
+        r"trigCol\s*\(\s*\"([^\"]*)\"\s*,\s*([^,]+?)\s*,\s*\{(.*?)\}\s*\)",
         re.DOTALL,
     )
-    for start_expr, labels_blob in call.findall(body):
+    for title, start_expr, labels_blob in call.findall(body):
         start = _eval_int(start_expr, consts)
         labels = re.findall(r'"((?:[^"\\]|\\.)*)"', labels_blob)
         for i, lab in enumerate(labels):
-            notes[start + i] = _unescape_cpp(lab)
+            lab = _unescape_cpp(lab)
+            pre = _prefix(title, lab)
+            notes[start + i] = f"{pre} {lab}" if pre else lab
     return notes
 
 
@@ -119,16 +145,16 @@ def build_note_names() -> dict[int, str]:
 
     names = parse_label_columns(SRC / "TriggerMenu.cpp", consts)
 
-    # Palette columns: colour names, with secondary marked so the two octaves
-    # of the same colour stay distinguishable in Ableton's chain list.
+    # Palette columns: colour names, prefixed "cp" (primary) / "cs" (secondary)
+    # so the two octaves stay distinguishable and cluster in Ableton's list.
     palette = parse_palette_names(SRC / "Palette.h")
     prim = consts["kPrimaryPaletteStart"]
     sec = consts["kSecondaryPaletteStart"]
     sec_size = consts.get("kSecondaryPaletteSize", 12)
     for o in range(len(palette)):  # primary spans all 24 colours
-        names[prim + o] = palette[o]
+        names[prim + o] = f"cp {palette[o]}"
     for o in range(min(sec_size, len(palette))):
-        names[sec + o] = f"{palette[o]} (sec)"
+        names[sec + o] = f"cs {palette[o]}"
 
     return names
 

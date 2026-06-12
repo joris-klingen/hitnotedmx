@@ -18,14 +18,12 @@ architecture lives in [STATUS.md](STATUS.md).
    unplug/replug hardware testing, which is the bulk of it. One file, no
    architectural change.
 
-2. **Ship with ~100 demo MIDI clips** — a bundled library of clips that
-   showcase the vocabulary so a new user has ready-made examples to drop on
-   a `HitNoteDmx` track: one clip per recipe (each chase/breathe/wild/
-   multicolor), palette-routing demos (primary vs soft-velocity secondary),
-   structural combos (bars × zones × chases), spot moves, strobe, and a few
-   longer "song section" arrangements that layer several at once. Decide the
-   format (`.mid` files vs an Ableton `.als`/rack) and where they live in the
-   repo; document how to load them in the README.
+2. **Polish the showcase content** — the "Showcase" button now ships a named
+   trigger rack (embedded) + ~87 runtime-generated demo clips (one per trigger
+   + a Combos folder) to `~/Music/HitNoteDmx Showcase`. Follow-ups: add a few
+   longer layered "song section" clips; palette-routing demos (primary vs
+   soft-velocity secondary); per-recipe velocity variants (e.g. a Breathe at
+   low velocity to show the islands). Tune clip count/length once auditioned.
 
 3. **Drag a MIDI clip from the plugin into the DAW** — once a selection is
    built by clicking tiles in the trigger menu, let the user drag that latched
@@ -64,6 +62,12 @@ architecture lives in [STATUS.md](STATUS.md).
 
 ## Recently shipped (see STATUS.md for detail)
 
+- **Showcase assets** — a "Showcase" button (far-right pane) extracts a named
+  trigger rack (`Hitnotenames.adg`, embedded via `juce_add_binary_data`) plus
+  ~87 demo MIDI clips to `~/Music/HitNoteDmx Showcase/` and opens it in Finder.
+  Clips are generated at runtime (`Source/Showcase.cpp`) from the live trigger
+  vocabulary (via `TriggerMenu::triggerTiles`), so they never drift; extraction
+  is idempotent. The rack is named by `tools/name_rack.py` (parses the source).
 - **Velocity semantics documented** — a single table atop `Composition.cpp`
   maps the four meanings of velocity (route / tail / speed / intensity+fade).
 - **Live-MIDI tile highlight** — trigger-menu tiles light up while their note

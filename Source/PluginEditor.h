@@ -54,6 +54,8 @@ private:
 
     juce::TextButton connectUsbButton  { "Connect USB" };
     juce::TextButton blackoutButton    { "Blackout" };
+    juce::TextButton initNamesButton   { "Init. names" };   // install the named rack
+    juce::TextButton showClipsButton   { "Show clips" };    // open the demo-clips folder
     juce::Label      deviceStatusLabel;
     juce::TextEditor midiLogView;
     DmxVisualizer    dmxView;

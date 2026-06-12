@@ -93,25 +93,25 @@ void TriggerMenu::buildModel()
           "Zone 7", "Zone 8", "Zone 9", "Even", "Odd", "Thirds" }));
 
     columns.push_back (trigCol ("Chases", kChasesStart,
-        { "Chase up", "Chase dn", "Ping-pong", "Snake", "Spiral", "Pong",
-          "Diag up", "Diag dn", "Waves", "Expand", "Contract", "Snake H" }));
+        { "Chase up", "Chase dn", "Ping-pong", "Diag up", "Diag dn", "Snake",
+          "Snake H", "Spiral", "Waves", "Expand", "Contract", "Pong" }));
 
     columns.push_back (trigCol ("Breathes", kBreathesStart,
-        { "Sine", "Breathe", "Ripple", "Halo", "Moon rise", "Soft ball", "Aurora",
-          "Ripple H", "Bloom", "Shimmer", "Sway", "Drift" }));
+        { "Breathe", "Sine", "Ripple", "Ripple H", "Bloom", "Halo",
+          "Moon rise", "Soft ball", "Drift", "Aurora", "Shimmer", "Sway" }));
 
     columns.push_back (trigCol ("Wild", kWildStart,
-        { "Sparkle", "Strobe", "Alt swap", "Rain", "Lightning", "Static",
-          "Glitch", "Bounce", "Zigzag", "Sparkle few", "Fast ball", "Converge" }));
+        { "Sparkle", "Sparkle few", "Strobe", "Lightning", "Glitch", "Static",
+          "Rain", "Alt swap", "Bounce", "Fast ball", "Zigzag", "Converge" }));
 
     // Multicolor spans two octaves (two columns of self-coloured recipes).
     columns.push_back (trigCol ("Multicolor", kColorDynStart,
-        { "Rainbow", "Comet", "VU meter", "Fire", "Desert", "VU smooth",
-          "Night sky", "Police", "Embers", "Plasma", "Ocean", "Nebula" }));
+        { "Rainbow", "Comet", "VU meter", "VU smooth", "Fire", "Embers",
+          "Magma", "Lava", "Heatmap", "Ocean", "Forest", "Desert" }));
 
     columns.push_back (trigCol ("Multicolor", kColorDynStart + 12,
-        { "Sunset", "Forest", "Lava", "Borealis", "Candy", "Magma",
-          "Storm", "Galaxy", "Blocks", "Disco", "Twilight", "Heatmap" }));
+        { "Sunset", "Twilight", "Borealis", "Night sky", "Galaxy", "Nebula",
+          "Storm", "Plasma", "Police", "Disco", "Blocks", "Candy" }));
 
     // Palettes (shifted up an octave): Primary keeps two octaves, Secondary is
     // one octave (colours 0..11). Grouped under PRIM / SEC headers.

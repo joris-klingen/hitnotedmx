@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "Showcase.h"
 
 namespace hitnotedmx
 {
@@ -76,11 +77,14 @@ HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioP
     // far-right utility pane (click-velocity + drag placeholder).
     setSize (1296, 360);
 
-    addAndMakeVisible (connectUsbButton);
-    addAndMakeVisible (blackoutButton);
-    connectUsbButton.addListener (this);
-    blackoutButton.addListener (this);
+    for (auto* btn : { &connectUsbButton, &blackoutButton, &initNamesButton, &showClipsButton })
+    {
+        btn->addListener (this);
+        addAndMakeVisible (*btn);
+    }
     blackoutButton.setClickingTogglesState (true);
+    initNamesButton.setTooltip ("Install the named trigger rack into your Ableton User Library (MIDI Effects)");
+    showClipsButton.setTooltip ("Write the demo clips to ~/Music/HitNoteDmx Showcase and open it in Finder");
 
     deviceStatusLabel.setJustificationType (juce::Justification::centredLeft);
     deviceStatusLabel.setColour (juce::Label::textColourId, juce::Colours::white);
@@ -176,6 +180,8 @@ HitNoteDmxAudioProcessorEditor::~HitNoteDmxAudioProcessorEditor()
     stopTimer();
     connectUsbButton.removeListener (this);
     blackoutButton.removeListener (this);
+    initNamesButton.removeListener (this);
+    showClipsButton.removeListener (this);
     ledDimSlider.setLookAndFeel (nullptr);
     spotDimSlider.setLookAndFeel (nullptr);
     densitySlider.setLookAndFeel (nullptr);
@@ -249,13 +255,20 @@ void HitNoteDmxAudioProcessorEditor::resized()
         place (knobRow,                       densityLabel, densitySlider);
         leftContent.removeFromTop (8);
 
-        // Utility controls pinned to the bottom: status line + the three
-        // big buttons. The MIDI log takes whatever is left in between.
-        auto controls = leftContent.removeFromBottom (94);
-        connectUsbButton.setBounds (controls.removeFromTop (32));
-        controls.removeFromTop (6);
-        blackoutButton.setBounds (controls.removeFromTop (32));
-        controls.removeFromTop (6);
+        // Utility controls pinned to the bottom: two rows of paired buttons
+        // (Connect/Blackout, then Init names/Show clips) + a status line. The
+        // MIDI log takes whatever is left in between.
+        auto controls = leftContent.removeFromBottom (90);
+        auto pairRow = [] (juce::Rectangle<int> row, juce::Button& left, juce::Button& right)
+        {
+            const int half = row.getWidth() / 2;
+            left.setBounds  (row.removeFromLeft  (half - 3));
+            right.setBounds (row.removeFromRight (half - 3));
+        };
+        pairRow (controls.removeFromTop (28), connectUsbButton, blackoutButton);
+        controls.removeFromTop (5);
+        pairRow (controls.removeFromTop (28), initNamesButton, showClipsButton);
+        controls.removeFromTop (5);
         deviceStatusLabel.setBounds (controls);  // remaining (~18px, one line)
 
         leftContent.removeFromBottom (8);
@@ -298,6 +311,17 @@ void HitNoteDmxAudioProcessorEditor::buttonClicked (juce::Button* b)
         proc.blackout = on;
         proc.getDmx().setBlackout (on);
         appendLog (on ? "[blackout] ON" : "[blackout] OFF");
+    }
+    else if (b == &initNamesButton)
+    {
+        const auto rack = Showcase::installRack();
+        appendLog ("[names] " + rack.getFullPathName());
+    }
+    else if (b == &showClipsButton)
+    {
+        const auto clips = Showcase::writeClips (Showcase::defaultRoot());
+        appendLog ("[clips] " + clips.getFullPathName());
+        clips.revealToUser();
     }
 }
 
