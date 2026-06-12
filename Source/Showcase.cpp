@@ -111,12 +111,11 @@ juce::File installRack()
 {
     const auto root = defaultRoot();
     const auto rack = rackTarget (root);
-    if (! rack.existsAsFile())
-    {
-        rack.getParentDirectory().createDirectory();
-        rack.replaceWithData (BinaryData::Hitnotenames_adg,
-                              static_cast<size_t> (BinaryData::Hitnotenames_adgSize));
-    }
+    // Always (re)write so "Init. names" refreshes an out-of-date rack to the
+    // names embedded in this build, not just creates one when missing.
+    rack.getParentDirectory().createDirectory();
+    rack.replaceWithData (BinaryData::Hitnotenames_adg,
+                          static_cast<size_t> (BinaryData::Hitnotenames_adgSize));
     // If it lives in the User Library, drop the old redundant copy the showcase
     // folder used to hold (it showed up twice in Ableton).
     if (! rack.isAChildOf (root))

@@ -582,9 +582,14 @@ RecipeRGB vu_meter (double t, int /*barIdx*/, int pixel, int nPix, int /*nBars*/
     // Smooth meter, UNIFORM across all bars, beat-LOCKED (t isn't velocity-
     // scaled — see computeDmx). Velocity sets the RANGE: it snaps to `peak` on
     // each beat, then releases fast back to a 2-pixel green floor within the
-    // beat. peak = sqrt(gain) → vel 127 maxes out into the red, vel ~100 ≈ 16/18.
+    // beat. `peak` is sqrt(gain) for a natural meter feel, plus extra headroom
+    // that only kicks in near full velocity (the gain^22 term) so a 127 hit
+    // overshoots well past the top and stays PINNED in the red for ~1/3 of the
+    // beat — reliably visible — while mid velocities still read as a partial
+    // meter (vel ~100 ≈ 16/18 pixels).
     const float floorLvl = 2.0f / static_cast<float> (nPix);
-    const float peak     = std::sqrt (std::clamp (gain, 0.0f, 1.0f));
+    const float g        = std::clamp (gain, 0.0f, 1.0f);
+    const float peak     = std::sqrt (g) * (1.0f + 2.2f * std::pow (g, 22.0f));
     const float ph       = static_cast<float> (std::fmod (t, 1.0));
     const float level    = floorLvl + (peak - floorLvl) * std::exp (-ph * 4.0f);
     const float y        = static_cast<float> (pixel) / static_cast<float> (nPix);
