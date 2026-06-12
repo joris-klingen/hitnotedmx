@@ -2,6 +2,7 @@
 
 #include "Palette.h"
 #include "Recipes.h"
+#include "TriggerVocabulary.h"
 
 #include <algorithm>
 
@@ -18,10 +19,6 @@ constexpr int kNumRows    = 12;   // C..B
 constexpr int kPalColW    = 22;   // narrow colour-chip column
 constexpr int kCellPad    = 2;    // gap around each tile (reveals the grid)
 constexpr int kOctaveH    = 12;   // octave-number band at the bottom of the header
-
-// Vocabulary octave starts not exported from Composition.cpp — mirror here.
-constexpr int kSpotBarOctave    = 0;    // spots 0..3, bars 4..7
-constexpr int kPixelStaticStart = 12;
 
 const char* const kNoteLetters[12] =
     { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
@@ -56,73 +53,37 @@ void TriggerMenu::buildModel()
 {
     columns.clear();
 
-    // A trigger column: labels occupy note offsets 0,1,2,… from `octaveStart`.
-    auto trigCol = [] (juce::String title, int octaveStart,
-                       std::vector<juce::String> labels)
+    // The vocabulary (labels, octaves, palette layout) is the shared single
+    // source of truth in TriggerVocabulary — the rack namer reads the same
+    // data. Here we just turn it into the display model (tiles + swatches).
+    for (const auto& vc : vocab::columns())
     {
         Column c;
-        c.title  = std::move (title);
-        c.octave = octaveStart / 12 - 2;
-        for (int i = 0; i < static_cast<int> (labels.size()) && i < kNumRows; ++i)
-            c.cells[static_cast<size_t> (i)] =
-                { octaveStart + i, std::move (labels[static_cast<size_t> (i)]), {}, false, true };
-        return c;
-    };
+        c.octave  = vc.octaveStart / 12 - 2;
+        c.palette = vc.palette;
+        c.title   = vc.title;
+        c.group   = vc.group;
 
-    // A palette column: 12 colour swatches, one full octave. `paletteBase` is
-    // the palette index at this octave's C (0 for the low octave, 12 the high).
-    auto palCol = [] (juce::String group, int octaveStart, int paletteBase)
-    {
-        Column c;
-        c.group   = std::move (group);
-        c.octave  = octaveStart / 12 - 2;
-        c.palette = true;
-        // Secondary notes pull from their own complementary table; primaries
-        // from the 24-colour table (offset = paletteBase + row).
-        const int palStart = octaveStart >= kSecondaryPaletteStart ? kSecondaryPaletteStart
-                                                                   : kPrimaryPaletteStart;
-        for (int o = 0; o < kNumRows; ++o)
-            c.cells[static_cast<size_t> (o)] =
-                { octaveStart + o, noteName (octaveStart + o),
-                  paletteColour (palStart, paletteBase + o), true, true };
-        return c;
-    };
+        if (vc.palette)
+        {
+            // Secondary notes pull from their own complementary table; primaries
+            // from the 24-colour table (offset = paletteBase + row).
+            const int palStart = vc.octaveStart >= kSecondaryPaletteStart ? kSecondaryPaletteStart
+                                                                          : kPrimaryPaletteStart;
+            for (int o = 0; o < kNumRows; ++o)
+                c.cells[static_cast<size_t> (o)] =
+                    { vc.octaveStart + o, noteName (vc.octaveStart + o),
+                      paletteColour (palStart, vc.paletteBase + o), true, true };
+        }
+        else
+        {
+            for (int i = 0; i < static_cast<int> (vc.labels.size()) && i < kNumRows; ++i)
+                c.cells[static_cast<size_t> (i)] =
+                    { vc.octaveStart + i, vc.labels[static_cast<size_t> (i)], {}, false, true };
+        }
 
-    // Octave -2: total blackout (C-2) sits at the bottom, spots + bars above.
-    columns.push_back (trigCol ("Spots & bars", kSpotBarOctave,
-        { "Blackout", "Spot L WW", "Spot L col", "Spot R WW", "Spot R col",
-          "Bar 1", "Bar 2", "Bar 3", "Bar 4" }));
-
-    columns.push_back (trigCol ("Zones", kPixelStaticStart,
-        { "Zone 1", "Zone 2", "Zone 3", "Zone 4", "Zone 5", "Zone 6",
-          "Zone 7", "Zone 8", "Zone 9", "Even", "Odd", "Thirds" }));
-
-    columns.push_back (trigCol ("Chases", kChasesStart,
-        { "Chase up", "Chase dn", "Ping-pong", "Diag up", "Diag dn", "Snake",
-          "Snake H", "Spiral", "Waves", "Expand", "Contract", "Pong" }));
-
-    columns.push_back (trigCol ("Breathes", kBreathesStart,
-        { "Breathe", "Sine", "Ripple", "Ripple H", "Bloom", "Halo",
-          "Moon rise", "Soft ball", "Drift", "Aurora", "Shimmer", "Sway" }));
-
-    columns.push_back (trigCol ("Wild", kWildStart,
-        { "Strobe", "Sparkle", "Sparkle few", "Lightning", "Glitch", "Static",
-          "Rain", "Alt swap", "Bounce", "Fast ball", "Zigzag", "Converge" }));
-
-    // Multicolor spans two octaves (two columns of self-coloured recipes).
-    columns.push_back (trigCol ("Multicolor", kColorDynStart,
-        { "Rainbow", "Comet", "VU meter", "VU smooth", "Fire", "Embers",
-          "Magma", "Lava", "Heatmap", "Ocean", "Forest", "Desert" }));
-
-    columns.push_back (trigCol ("Multicolor", kColorDynStart + 12,
-        { "Sunset", "Twilight", "Borealis", "Night sky", "Galaxy", "Nebula",
-          "Storm", "Plasma", "Police", "Disco", "Blocks", "Candy" }));
-
-    // Palettes (shifted up an octave): Primary keeps two octaves, Secondary is
-    // one octave (colours 0..11). Grouped under PRIM / SEC headers.
-    columns.push_back (palCol ("Prim", kPrimaryPaletteStart,      0));
-    columns.push_back (palCol ("Prim", kPrimaryPaletteStart + 12, 12));
-    columns.push_back (palCol ("Sec",  kSecondaryPaletteStart,    0));
+        columns.push_back (std::move (c));
+    }
 }
 
 void TriggerMenu::resized()

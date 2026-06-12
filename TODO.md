@@ -71,13 +71,14 @@ architecture lives in [STATUS.md](STATUS.md).
   per period (shortest flash) instead of a 50% duty; **velocity sets the repeat
   rate 1–20 Hz** so only the black gap grows. Visualizer mirrors the pattern.
 - **Showcase assets** — two left-pane buttons: **Init. names** installs the
-  embedded named trigger rack (`Hitnotenames.adg`, via `juce_add_binary_data`)
-  into the Ableton User Library; **Show clips** writes layered demo *combo*
-  clips to `~/Music/HitNoteDmx Showcase/Combos/` and opens it in Finder. Clips
-  are generated at runtime (`Source/Showcase.cpp`) from the bank/palette
-  constants, idempotent. The rack is named by `tools/name_rack.py` (parses the
-  source), with group prefixes (cp/cs/bk/sp/ba/pz/ch/br/wd/mc); `installRack()`
-  always overwrites so re-clicking refreshes stale names.
+  trigger rack (`Hitnotenames.adg`, embedded via `juce_add_binary_data`) into
+  the Ableton User Library; **Show clips** writes layered demo *combo* clips to
+  `~/Music/HitNoteDmx Showcase/Combos/` and opens it in Finder. Clips are
+  generated at runtime (`Source/Showcase.cpp`), idempotent. The rack's 128
+  chains are named **at runtime** from the shared `TriggerVocabulary` (group
+  prefixes cp/cs/bk/sp/ba/pz/ch/br/wd/mc, `-` for unused) — the embedded .adg
+  is just a key-gated template, so the names can never drift from the plugin
+  and there is no offline tool. `installRack()` always overwrites.
 - **Recipe reorder + per-bank velocity + VU meter** — all four dispatch tables
   reordered into a logical grouping (matching the menu 1:1). Velocity means a
   different thing per bank: Chases → tail, Wild → beat-division (sparkle(s) stay

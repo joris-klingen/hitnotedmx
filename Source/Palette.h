@@ -81,4 +81,18 @@ inline constexpr PaletteColor paletteColorFor (int paletteStart, int offset) noe
                : kPalette[static_cast<std::size_t> (offset)];
 }
 
+// Colour names (data, not just comments) — used to label the trigger rack's
+// chains. Kept in lockstep with the tables above.
+inline constexpr std::array<const char*, kPaletteSize> kPaletteNames {{
+    "Black", "Red", "Orange-red", "Orange", "Amber", "Yellow", "Lime", "Green",
+    "Mint", "Teal", "Cyan", "Sky", "Blue", "Royal", "Indigo", "Violet",
+    "Purple", "Magenta", "Pink", "Hot pink", "Crimson", "Warm white",
+    "Cool white", "Lavender",
+}};
+
+inline constexpr std::array<const char*, kSecondaryPaletteSize> kSecondaryPaletteNames {{
+    "Warm white", "Coral", "Gold", "Chartreuse", "Jade", "Aqua", "Azure",
+    "Periwinkle", "Lavender", "Orchid", "Rose", "Cool white",
+}};
+
 }  // namespace hitnotedmx

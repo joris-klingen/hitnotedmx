@@ -1,11 +1,14 @@
 #include "Showcase.h"
 
 #include <juce_audio_basics/juce_audio_basics.h>
+#include <regex>
+#include <string>
 #include <vector>
 
 #include "BinaryData.h"
 #include "Palette.h"
 #include "Recipes.h"
+#include "TriggerVocabulary.h"
 
 namespace hitnotedmx
 {
@@ -107,15 +110,85 @@ juce::File defaultRoot()
                .getChildFile ("HitNoteDmx Showcase");
 }
 
+namespace
+{
+juce::String xmlEscape (const juce::String& s)
+{
+    return s.replace ("&", "&amp;").replace ("\"", "&quot;")
+            .replace ("<", "&lt;").replace (">", "&gt;");
+}
+
+// Name every chain in the rack XML from the live trigger vocabulary: each
+// <MidiEffectBranchPreset>'s <Name> is set from its <KeyRange>'s <Min> note.
+// Surgical string edits (only the Name values change) so the rest of the
+// Ableton XML is preserved byte-for-byte.
+std::string nameChains (const std::string& xml)
+{
+    static const std::regex branchRe (R"RX(<MidiEffectBranchPreset\b[\s\S]*?</MidiEffectBranchPreset>)RX");
+    static const std::regex keyMinRe (R"RX(<KeyRange>\s*<Min Value="(\d+)")RX");
+    static const std::regex nameRe   (R"RX((<Name Value=")[\s\S]*?("\s*/>))RX");
+
+    std::string out;
+    std::size_t last = 0;
+    for (auto it = std::sregex_iterator (xml.begin(), xml.end(), branchRe);
+         it != std::sregex_iterator(); ++it)
+    {
+        const auto m = *it;
+        out.append (xml, last, static_cast<std::size_t> (m.position()) - last);
+
+        std::string block = m.str();
+        std::smatch km;
+        if (std::regex_search (block, km, keyMinRe))
+        {
+            const int note = std::stoi (km[1].str());
+            const std::string name = xmlEscape (vocab::chainName (note)).toStdString();
+            block = std::regex_replace (block, nameRe, "$1" + name + "$2",
+                                        std::regex_constants::format_first_only);
+        }
+        out.append (block);
+        last = static_cast<std::size_t> (m.position() + m.length());
+    }
+    out.append (xml, last, std::string::npos);
+    return out;
+}
+
+juce::String gunzip (const void* data, std::size_t size)
+{
+    juce::MemoryInputStream in (data, size, false);
+    juce::GZIPDecompressorInputStream gz (&in, false,
+                                          juce::GZIPDecompressorInputStream::gzipFormat);
+    return gz.readEntireStreamAsString();
+}
+
+juce::MemoryBlock gzip (const juce::String& text)
+{
+    juce::MemoryBlock mb;
+    {
+        juce::MemoryOutputStream out (mb, false);
+        juce::GZIPCompressorOutputStream gz (out, 9,
+                                             juce::GZIPCompressorOutputStream::windowBitsGZIP);
+        gz.write (text.toRawUTF8(), text.getNumBytesAsUTF8());
+    }   // gz + out finalise on scope exit, completing the gzip stream
+    return mb;
+}
+}  // namespace
+
 juce::File installRack()
 {
     const auto root = defaultRoot();
     const auto rack = rackTarget (root);
-    // Always (re)write so "Init. names" refreshes an out-of-date rack to the
-    // names embedded in this build, not just creates one when missing.
+
+    // The embedded .adg is a TEMPLATE (128 key-gated chains). We name its
+    // chains here, at runtime, straight from the live trigger vocabulary — so
+    // the rack can never drift from the plugin and there is no offline tool to
+    // re-run. Always (re)write so "Init. names" refreshes a stale rack.
+    const auto xml  = gunzip (BinaryData::Hitnotenames_adg,
+                              static_cast<std::size_t> (BinaryData::Hitnotenames_adgSize));
+    const auto named = gzip (juce::String (nameChains (xml.toStdString())));
+
     rack.getParentDirectory().createDirectory();
-    rack.replaceWithData (BinaryData::Hitnotenames_adg,
-                          static_cast<size_t> (BinaryData::Hitnotenames_adgSize));
+    rack.replaceWithData (named.getData(), named.getSize());
+
     // If it lives in the User Library, drop the old redundant copy the showcase
     // folder used to hold (it showed up twice in Ableton).
     if (! rack.isAChildOf (root))

@@ -50,13 +50,14 @@ target_sources(HitNoteDmx PRIVATE
     Source/Composition.cpp
     Source/DmxVisualizer.cpp
     Source/TriggerMenu.cpp
+    Source/TriggerVocabulary.cpp
     Source/Showcase.cpp
 )
 
 # Showcase assets embedded in the binary (works identically for Standalone +
-# VST3, no fragile bundle-path lookups). The named trigger rack is the one
-# asset the plugin can't regenerate; the demo MIDI clips are produced at
-# runtime from the live vocabulary (see Showcase.cpp).
+# VST3, no fragile bundle-path lookups). The embedded .adg is a key-gated
+# TEMPLATE; its chains are named at runtime from the live vocabulary, and the
+# demo MIDI clips are produced the same way (see Showcase.cpp).
 juce_add_binary_data(HitNoteDmxData SOURCES
     "assets/showcase/Ableton Rack/Hitnotenames.adg"
 )
