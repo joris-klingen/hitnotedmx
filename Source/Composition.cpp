@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 
 #include "Palette.h"
 #include "Recipes.h"
@@ -22,8 +23,10 @@ namespace hitnotedmx
 //   ──────────────────────   ───────────────────────────────────────────────
 //   Bar / pixel-zone select  Palette ROUTE: >= 64 → primary, < 64 → secondary
 //                            (kVelocityThreshold; see routeForVelocity)
-//   Brightness dynamics      TAIL length of the comet head — soft = long trail
-//                            (DynamicFn `tail` arg; section 5)
+//   Chases (brightness)      TAIL length of the comet head — soft = long trail
+//   Wild (brightness)        SPEED — scales the recipe's animation clock
+//   Breathes (brightness)    DENSITY — soft carves the shape into smooth
+//                            patchy islands (breatheDensityMask)
 //   Colour dynamics          SPEED of the recipe's animation — hard = faster
 //                            (scales the recipe's `t`; section 5 / 7)
 //   Palette colour notes     INTENSITY (scale) + colour-FADE duration — hard =
@@ -215,6 +218,57 @@ void advanceFade (ColorFadeState::Channel& c,
     c.cur[2] = c.start[2] + (tb - c.start[2]) * fp;
 }
 
+constexpr float kTwoPi = 6.28318530717958647692f;
+
+inline float smoothstep01 (float a, float b, float x) noexcept
+{
+    const float t = std::clamp ((x - a) / (b - a), 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
+}
+
+inline float hashf (std::uint32_t h) noexcept   // avalanche → [0,1)
+{
+    h ^= h >> 16;  h *= 0x7FEB352Du;
+    h ^= h >> 15;  h *= 0x846CA68Bu;
+    h ^= h >> 16;
+    return static_cast<float> (h) / 4294967296.0f;
+}
+
+// Patchy density mask for the Breathes bank (driven by the note's velocity).
+// The field is a few smooth Gaussian humps — one dominant — and `density`
+// sets a soft threshold below which cells go dark. Sweeping velocity 127 → 0
+// therefore morphs: full grid → soft holes in the valleys → a connected
+// "lake" around half-way → a few islands → one bigger / two smaller islands
+// that never fully vanish (the threshold is capped). Smooth in BOTH axes
+// (Gaussian + smoothstep). `seed` (per note-on) relocates the humps, so each
+// retrigger lands the islands somewhere new.
+inline float breatheDensityMask (int barIdx, int pixel, int nPix, int nBars,
+                                 float density, float seed) noexcept
+{
+    if (density >= 0.999f)
+        return 1.0f;
+    const float x = nBars > 1 ? static_cast<float> (barIdx) / static_cast<float> (nBars - 1) : 0.5f;
+    const float y = (static_cast<float> (pixel) - 0.5f) / static_cast<float> (nPix);
+    const std::uint32_t base = static_cast<std::uint32_t> (seed * 4294967040.0f) + 1u;
+    const float p = seed * kTwoPi;
+
+    // Smooth noise gives the holes / lake texture; one dominant broad bump
+    // biases a region so the last survivor at density 0 is a single island.
+    // Low HORIZONTAL frequencies + a horizontally-broad bump keep the lateral
+    // edges soft (the grid is only 4 bars wide); a wide smoothstep band adds
+    // intermediate brightness on the boundaries so transitions ramp instead of
+    // snapping.
+    const float noise = 0.5f + 0.5f * (0.55f * std::sin (kTwoPi * (x * 0.30f + y * 1.2f) + p)
+                                     + 0.45f * std::sin (kTwoPi * (x * 0.50f - y * 0.7f) + p * 1.7f + 2.0f));
+    const float bx = 0.2f + 0.6f * hashf (base + 11u);
+    const float by = 0.2f + 0.6f * hashf (base + 23u);
+    const float bump = std::exp (-((x - bx) * (x - bx) * 0.55f + (y - by) * (y - by) * 0.45f) / (0.40f * 0.40f));
+    const float f = std::min (1.0f, 0.66f * noise + 0.52f * bump);
+
+    const float threshold = (1.0f - density) * 0.80f;   // cap: density 0 still leaves the dominant island
+    return smoothstep01 (threshold - 0.22f, threshold + 0.22f, f);
+}
+
 }  // namespace
 
 
@@ -359,22 +413,20 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
     });
 
     // ---- 5. Dynamic layer ------------------------------------------------
-    // Brightness dynamics contribute brightness/motion only — they do NOT
-    // pick a colour route. The colour comes from the bar/zone selectors
-    // (whose velocity routes primary vs secondary) or the primary palette by
-    // default, so a chase renders in whatever colour the structural layers
-    // chose. For dynamics, velocity instead drives the trail length. Each
-    // held note keeps its own tail, so simultaneous chases can trail
-    // independently. Small fixed-size buffers; the audio thread never
-    // allocates.
+    // Brightness dynamics contribute brightness/motion only — they do NOT pick
+    // a colour route; the colour comes from the bar/zone selectors or the
+    // primary palette. What the note's VELOCITY means depends on the bank:
+    //   • Chases   → trail length (tail; soft = long comet)
+    //   • Wild     → animation speed (scales the recipe's clock)
+    //   • Breathes → density (carves the breathe into smooth patchy islands)
+    // `mode` records which, and `param` carries the bank-specific value.
     //
-    // Colour dynamics (the self-coloured Multicolor bank) are gathered
-    // separately: they emit RGB directly and, when held, replace the palette
-    // route for the lit pixels. Brightness dynamics still multiply on top, so
-    // "rainbow + snake" is a rainbow-coloured snake. For colour dynamics the
-    // note's VELOCITY controls SPEED (it scales the animation clock) rather
-    // than a trail length.
-    struct ActiveRecipe      { DynamicFn      fn; float tail; };
+    // Colour dynamics (the Multicolor bank) are gathered separately: they emit
+    // RGB directly and, when held, replace the palette route for the lit
+    // pixels (brightness dynamics still multiply on top). Their velocity drives
+    // SPEED. Small fixed-size buffers; the audio thread never allocates.
+    enum DynMode { kTail = 0, kSpeed = 1, kDensity = 2 };
+    struct ActiveRecipe      { DynamicFn      fn; float param; int mode; float seed; };
     struct ActiveColorRecipe { DynamicColorFn fn; float speed; };
     constexpr int kMaxRecipes = 16;
     std::array<ActiveRecipe,      kMaxRecipes> recipes {};
@@ -385,8 +437,7 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
 
     state.forEachHeld ([&] (std::uint8_t pitch, const HeldNote& n)
     {
-        // Soft notes trail long, hard notes snap to a single-pixel head.
-        const float tail = 1.0f - static_cast<float> (n.velocity) / 127.0f;
+        const float vel = static_cast<float> (n.velocity);
 
         if (isDynamicPitch (pitch))
         {
@@ -394,13 +445,25 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
             if (fn == nullptr)
                 return;   // e.g. strobe (pitch 49) — applied as a driver-level shutter
             dynamicLayerHeld = true;
-            if (nRecipes < kMaxRecipes) recipes[nRecipes++] = { fn, tail };
+            if (nRecipes >= kMaxRecipes)
+                return;
+            if (isWildPitch (pitch))
+                recipes[nRecipes++] = { fn, std::clamp (vel / 64.0f, 0.2f, 2.5f), kSpeed, 0.0f };  // speed
+            else if (isBreathesPitch (pitch))
+            {
+                // Seed the island layout from the note's start beat, so each
+                // retrigger lands the patches somewhere new (golden-ratio mix).
+                const float seed = static_cast<float> (std::fmod (n.startBeat * 0.61803398875 + 0.5, 1.0));
+                recipes[nRecipes++] = { fn, vel / 127.0f, kDensity, seed };                         // density
+            }
+            else
+                recipes[nRecipes++] = { fn, 1.0f - vel / 127.0f, kTail, 0.0f };                     // tail
         }
         else if (isColorDynPitch (pitch))
         {
             auto fn = getColorRecipe (pitch);
             // Velocity → speed: ~0.2× (soft) up to 2.5× (hard), 1× near mid.
-            const float speed = std::clamp (static_cast<float> (n.velocity) / 64.0f, 0.2f, 2.5f);
+            const float speed = std::clamp (vel / 64.0f, 0.2f, 2.5f);
             if (fn != nullptr && nColorRecipes < kMaxRecipes)
                 colorRecipes[nColorRecipes++] = { fn, speed };
         }
@@ -418,6 +481,24 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
         if (m.isWarmWhite) spotWW [m.spotIdx] = true;
         else               spotSec[m.spotIdx] = true;
     });
+
+    // ---- 6b. White default ----------------------------------------------
+    // If the bars are being driven (a bar / pixel / dynamic trigger is held)
+    // but NO palette colour is selected, render full white — same as clicking
+    // a tile in the menu. Likewise default the secondary accent (used by soft-
+    // velocity selectors and the spot 'col' triggers) to white. Seed the fade
+    // state too, so a colour played next fades in from white rather than black.
+    const bool barLike = barLayerHeld || pixelLayerHeld || dynamicLayerHeld;
+    if (barLike && primaryC.pitch < 0)
+    {
+        priR = priG = priB = 1.0f;
+        if (fade != nullptr) { fade->primary.cur[0] = fade->primary.cur[1] = fade->primary.cur[2] = 1.0f; }
+    }
+    if ((barLike || spotSec[0] || spotSec[1]) && secondaryC.pitch < 0)
+    {
+        secR = secG = secB = 1.0f;
+        if (fade != nullptr) { fade->secondary.cur[0] = fade->secondary.cur[1] = fade->secondary.cur[2] = 1.0f; }
+    }
 
     // ---- 7. Compose bars -------------------------------------------------
     const int nBars = kNumBars;
@@ -451,9 +532,18 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
             {
                 float dyn = 0.0f;
                 for (int i = 0; i < nRecipes; ++i)
-                    dyn = std::max (dyn,
-                                    recipes[i].fn (tBeats, barIdx, pixel,
-                                                   bar.pixels, nBars, recipes[i].tail));
+                {
+                    const auto& r = recipes[i];
+                    float v;
+                    if (r.mode == kSpeed)        // Wild: velocity scales the clock
+                        v = r.fn (tBeats * r.param, barIdx, pixel, bar.pixels, nBars, 0.0f);
+                    else if (r.mode == kDensity) // Breathes: velocity → patchy islands
+                        v = r.fn (tBeats, barIdx, pixel, bar.pixels, nBars, 0.0f)
+                          * breatheDensityMask (barIdx, pixel, bar.pixels, nBars, r.param, r.seed);
+                    else                          // Chases: velocity → trail length
+                        v = r.fn (tBeats, barIdx, pixel, bar.pixels, nBars, r.param);
+                    dyn = std::max (dyn, v);
+                }
                 dynBrightness = dyn;
             }
 

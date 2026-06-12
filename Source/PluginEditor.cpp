@@ -72,9 +72,9 @@ HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioP
 {
     // Flat & wide. The trigger menu is a transposed 12-row piano-roll grid,
     // so the visualiser height sets the minimum window height. Width fits the
-    // left controls + the rig + the trigger grid (ten columns: the second
-    // Multicolor octave roughly replaces a dropped palette column).
-    setSize (1220, 360);
+    // left controls + the rig + the trigger grid (ten columns) + a narrow
+    // far-right utility pane (click-velocity + drag placeholder).
+    setSize (1296, 360);
 
     addAndMakeVisible (connectUsbButton);
     addAndMakeVisible (blackoutButton);
@@ -129,6 +129,31 @@ HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioP
     addAndMakeVisible (triggerMenu);
     triggerMenu.onSelectionChanged = [this] (const std::vector<int>& pitches)
         { proc.setPreviewPitches (pitches); };
+
+    // Far-right pane: click-velocity slider — sets the velocity that previewed
+    // (clicked) triggers are held at, so the velocity-mapped behaviours can be
+    // auditioned without a keyboard.
+    clickVelLabel.setText ("CLICK VEL", juce::dontSendNotification);
+    clickVelLabel.setJustificationType (juce::Justification::centred);
+    clickVelLabel.setColour (juce::Label::textColourId, juce::Colours::white);
+    clickVelLabel.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+    addAndMakeVisible (clickVelLabel);
+
+    clickVelSlider.setRange (1.0, 127.0, 1.0);
+    clickVelSlider.setValue (proc.getPreviewVelocity(), juce::dontSendNotification);
+    clickVelSlider.setColour (juce::Slider::textBoxTextColourId, juce::Colours::white);
+    clickVelSlider.setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+    clickVelSlider.setColour (juce::Slider::thumbColourId, juce::Colour (0xff39c6c0));
+    clickVelSlider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 50, 18);
+    clickVelSlider.onValueChange = [this]
+        { proc.setPreviewVelocity (static_cast<int> (clickVelSlider.getValue())); };
+    addAndMakeVisible (clickVelSlider);
+
+    dragPlaceholder.setText ("MIDI drag\noptions\n(soon)", juce::dontSendNotification);
+    dragPlaceholder.setJustificationType (juce::Justification::centred);
+    dragPlaceholder.setColour (juce::Label::textColourId, juce::Colour (0xff6a6a6a));
+    dragPlaceholder.setFont (juce::FontOptions (9.5f));
+    addAndMakeVisible (dragPlaceholder);
 
     midiLogView.setMultiLine (true, false);
     midiLogView.setReadOnly (true);
@@ -185,6 +210,7 @@ void HitNoteDmxAudioProcessorEditor::paint (juce::Graphics& g)
     };
     card (leftPaneArea,  {});   // controls: panel only, title removed (obvious)
     card (rightPaneArea, {});   // triggers: panel only, title removed
+    card (extraPaneArea, {});   // far-right utility pane
     // Middle pane is the opaque visualiser; no card needed behind it.
 }
 
@@ -195,6 +221,8 @@ void HitNoteDmxAudioProcessorEditor::resized()
     const int gap = 12;
     leftPaneArea  = area.removeFromLeft (240);
     area.removeFromLeft (gap);
+    extraPaneArea = area.removeFromRight (64);   // narrow far-right utility pane
+    area.removeFromRight (gap);
     rightPaneArea = area.removeFromRight (600);
     area.removeFromRight (gap);
     midPaneArea   = area;
@@ -240,6 +268,16 @@ void HitNoteDmxAudioProcessorEditor::resized()
     // ---- RIGHT pane: the transposed piano-roll trigger grid (no scroll) ----
     // The menu fills the whole card; its rows scale to the height.
     triggerMenu.setBounds (rightPaneArea.reduced (4));
+
+    // ---- FAR-RIGHT pane: click-velocity slider (top) + drag placeholder ----
+    {
+        auto content = extraPaneArea.reduced (6);
+        auto top = content.removeFromTop (content.getHeight() * 6 / 10);
+        clickVelLabel.setBounds (top.removeFromTop (16));
+        clickVelSlider.setBounds (top.reduced (2, 2));
+        content.removeFromTop (8);
+        dragPlaceholder.setBounds (content);
+    }
 }
 
 void HitNoteDmxAudioProcessorEditor::buttonClicked (juce::Button* b)

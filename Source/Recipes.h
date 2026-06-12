@@ -77,6 +77,12 @@ inline constexpr bool isColorDynPitch (int pitch) noexcept
     return pitch >= kColorDynStart && pitch < kColorDynStart + kNumColorDyn;
 }
 
+// Which brightness bank a pitch belongs to (velocity means different things
+// per bank — see computeDmx: Chases → tail, Wild → speed, Breathes → density).
+inline constexpr bool isChasesPitch   (int p) noexcept { return p >= kChasesStart   && p < kChasesStart   + kNumChases; }
+inline constexpr bool isBreathesPitch (int p) noexcept { return p >= kBreathesStart && p < kBreathesStart + kNumBreathes; }
+inline constexpr bool isWildPitch     (int p) noexcept { return p >= kWildStart     && p < kWildStart     + kNumWild; }
+
 // Individual recipes — exposed for direct use if a caller doesn't want to go
 // through the dispatcher.
 float chase_up   (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
@@ -86,8 +92,8 @@ float snake      (double t, int barIdx, int pixel, int nPix, int nBars, float ta
 float sine_wave  (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float sparkle    (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float breathe    (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
-float sweep_up   (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
-float sweep_down (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
+float spiral     (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
+float converge   (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float alt_swap   (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float diag_up    (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float diag_down  (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
@@ -129,7 +135,7 @@ RecipeRGB desert_breathe (double t, int barIdx, int pixel, int nPix, int nBars) 
 // Multicolor (octave C3 fill).
 RecipeRGB vu_smooth      (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
 RecipeRGB night_sky      (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
-RecipeRGB skyline        (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
+RecipeRGB police         (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
 RecipeRGB embers         (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
 RecipeRGB plasma         (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
 RecipeRGB ocean          (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
@@ -139,12 +145,12 @@ RecipeRGB nebula         (double t, int barIdx, int pixel, int nPix, int nBars) 
 RecipeRGB sunset         (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
 RecipeRGB forest         (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
 RecipeRGB lava           (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
-RecipeRGB ice            (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
+RecipeRGB borealis       (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
 RecipeRGB candy          (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
-RecipeRGB toxic          (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
+RecipeRGB magma          (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
 RecipeRGB storm          (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
 RecipeRGB galaxy         (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
-RecipeRGB reef           (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
+RecipeRGB blocks         (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
 RecipeRGB disco          (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
 RecipeRGB twilight       (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
 RecipeRGB heatmap        (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;

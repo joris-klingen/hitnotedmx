@@ -61,6 +61,12 @@ private:
     // Right pane: clickable trigger reference (toggle + combine).
     TriggerMenu triggerMenu;
 
+    // Far-right utility pane: click-velocity slider (top) + a placeholder for
+    // the upcoming MIDI-drag options (bottom).
+    juce::Slider clickVelSlider { juce::Slider::LinearVertical, juce::Slider::TextBoxBelow };
+    juce::Label  clickVelLabel;
+    juce::Label  dragPlaceholder;
+
     // Master-dim knobs, attached to the host-automatable parameters so
     // the on-screen control, host automation, and any MIDI-mapped knob
     // all stay in sync.
@@ -90,7 +96,7 @@ private:
 
     // Pane card backgrounds, set in resized(), painted in paint().
     // titleArea is the strip above the visualiser carrying the app title.
-    juce::Rectangle<int> leftPaneArea, midPaneArea, rightPaneArea, titleArea;
+    juce::Rectangle<int> leftPaneArea, midPaneArea, rightPaneArea, extraPaneArea, titleArea;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (HitNoteDmxAudioProcessorEditor)
 };

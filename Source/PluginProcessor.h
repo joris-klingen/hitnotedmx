@@ -73,11 +73,16 @@ public:
     static juce::String paramIdForChannel (int channel1to512);
 
     // Live preview (GUI thread → audio thread). Holds the given SET of
-    // trigger pitches (toggle menu) until replaced. If the set contains
-    // structural triggers but no palette colour, a default primary +
-    // secondary colour is added so bars/pixels/dynamics are visible.
-    // Injected into MidiState each block via lock-free atomics.
+    // trigger pitches (toggle menu) until replaced. Injected into MidiState
+    // each block via lock-free atomics. (A structural/recipe trigger with no
+    // palette colour renders full white — see computeDmx.)
     void setPreviewPitches (const std::vector<int>& pitches);
+
+    // Velocity used for previewed (clicked) triggers — driven by the editor's
+    // click-velocity slider so the velocity-mapped behaviours (chase tail,
+    // wild speed, breathe density, colour speed) can be auditioned by clicking.
+    void setPreviewVelocity (int v) noexcept { previewVelocity.store (juce::jlimit (1, 127, v)); }
+    int  getPreviewVelocity () const noexcept { return previewVelocity.load(); }
 
     // Automatable master-dim parameter IDs (0..1). Exposed so the editor
     // can attach on-screen knobs to the same parameters the host sees.
@@ -115,6 +120,8 @@ private:
     static constexpr int kMaxPreview = 48;
     std::array<std::atomic<int>, kMaxPreview> previewPitch;
     std::array<int, kMaxPreview>              appliedPreview;
+    std::atomic<int>                          previewVelocity { 110 };
+    int                                       appliedPreviewVel { 110 };  // audio-thread bookkeeping
 
     double sampleRate_ { 48000.0 };
     double freeRunBeats { 0.0 };  // beat clock used when transport isn't playing

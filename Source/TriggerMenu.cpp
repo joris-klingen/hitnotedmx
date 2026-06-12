@@ -93,7 +93,7 @@ void TriggerMenu::buildModel()
           "Zone 7", "Zone 8", "Zone 9", "Even", "Odd", "Thirds" }));
 
     columns.push_back (trigCol ("Chases", kChasesStart,
-        { "Chase up", "Chase dn", "Ping-pong", "Snake", "Sweep up", "Sweep dn",
+        { "Chase up", "Chase dn", "Ping-pong", "Snake", "Spiral", "Converge",
           "Diag up", "Diag dn", "Waves", "Expand", "Contract", "Snake H" }));
 
     columns.push_back (trigCol ("Breathes", kBreathesStart,
@@ -107,11 +107,11 @@ void TriggerMenu::buildModel()
     // Multicolor spans two octaves (two columns of self-coloured recipes).
     columns.push_back (trigCol ("Multicolor", kColorDynStart,
         { "Rainbow", "Comet", "VU meter", "Fire", "Desert", "VU smooth",
-          "Night sky", "Skyline", "Embers", "Plasma", "Ocean", "Nebula" }));
+          "Night sky", "Police", "Embers", "Plasma", "Ocean", "Nebula" }));
 
     columns.push_back (trigCol ("Multicolor", kColorDynStart + 12,
-        { "Sunset", "Forest", "Lava", "Ice", "Candy", "Toxic",
-          "Storm", "Galaxy", "Reef", "Disco", "Twilight", "Heatmap" }));
+        { "Sunset", "Forest", "Lava", "Borealis", "Candy", "Magma",
+          "Storm", "Galaxy", "Blocks", "Disco", "Twilight", "Heatmap" }));
 
     // Palettes (shifted up an octave): Primary keeps two octaves, Secondary is
     // one octave (colours 0..11). Grouped under PRIM / SEC headers.

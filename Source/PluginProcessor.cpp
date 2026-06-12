@@ -9,7 +9,6 @@ namespace hitnotedmx
 
 namespace
 {
-constexpr int kPreviewVelocity = 110;  // held velocity for previewed triggers
 }
 
 juce::String HitNoteDmxAudioProcessor::paramIdForChannel (int channel1to512)
@@ -240,29 +239,15 @@ void HitNoteDmxAudioProcessor::setStateInformation (const void* data, int sizeIn
 
 void HitNoteDmxAudioProcessor::setPreviewPitches (const std::vector<int>& pitches)
 {
-    // Build the effective hold set, adding a default primary + secondary
-    // colour if the user latched structural triggers but no palette colour
-    // (otherwise bars/pixels/dynamics would render black).
+    // Just hold exactly the latched pitches. When a structural/recipe trigger
+    // is held with no palette colour, computeDmx defaults to full white — so
+    // clicking a tile and playing the same note over MIDI behave identically.
     std::array<int, kMaxPreview> next;
     next.fill (-1);
     int n = 0;
 
-    bool hasColour = false, hasStructural = false;
     for (int p : pitches)
-    {
-        // Self-coloured recipes (Multicolor bank) carry their own colour, so
-        // they count as colour, not structure.
-        if ((p >= kPrimaryPaletteStart && p < kSecondaryPaletteEnd) || isColorDynPitch (p))
-            hasColour = true;
-        else if (p >= 0 && p < kPrimaryPaletteStart)
-            hasStructural = true;  // spots / bars / zones / brightness dynamics
         if (n < kMaxPreview) next[static_cast<size_t> (n++)] = p;
-    }
-    if (hasStructural && ! hasColour)
-    {
-        if (n < kMaxPreview) next[static_cast<size_t> (n++)] = kPrimaryPaletteStart   + 22;  // cool white
-        if (n < kMaxPreview) next[static_cast<size_t> (n++)] = kSecondaryPaletteStart + 22;
-    }
 
     for (int i = 0; i < kMaxPreview; ++i)
         previewPitch[static_cast<size_t> (i)].store (next[static_cast<size_t> (i)]);
@@ -281,16 +266,28 @@ void HitNoteDmxAudioProcessor::applyPreview (double atBeat) noexcept
         return false;
     };
 
+    const auto vel = static_cast<std::uint8_t> (juce::jlimit (1, 127, previewVelocity.load()));
+
+    // If the click velocity changed, drop everything currently held so it
+    // re-triggers at the new velocity — lets the slider audition live.
+    if (static_cast<int> (vel) != appliedPreviewVel)
+    {
+        for (int a : appliedPreview)
+            if (a >= 0)
+                midiState.noteOff (static_cast<std::uint8_t> (a));
+        appliedPreview.fill (-1);
+        appliedPreviewVel = vel;
+    }
+
     // Release previously-held preview notes no longer wanted.
     for (int a : appliedPreview)
         if (a >= 0 && ! contains (want, a))
             midiState.noteOff (static_cast<std::uint8_t> (a));
 
-    // Hold newly-requested preview notes.
+    // Hold newly-requested preview notes at the editor-controlled velocity.
     for (int wv : want)
         if (wv >= 0 && ! contains (appliedPreview, wv))
-            midiState.noteOn (static_cast<std::uint8_t> (wv), 1,
-                              static_cast<std::uint8_t> (kPreviewVelocity), atBeat);
+            midiState.noteOn (static_cast<std::uint8_t> (wv), 1, vel, atBeat);
 
     appliedPreview = want;
 }

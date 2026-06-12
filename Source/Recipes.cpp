@@ -9,15 +9,6 @@ namespace hitnotedmx
 
 namespace
 {
-// Per-pixel deterministic phase offset in [0, 1) for the sparkle recipe.
-// The constant is the Knuth golden-ratio integer hash multiplier.
-float sparklePhase (int barIdx, int pixel) noexcept
-{
-    const std::uint32_t h =
-        static_cast<std::uint32_t> ((barIdx * 31 + pixel) * 0x9E3779B1u);
-    return static_cast<float> (h) / 4294967296.0f;
-}
-
 constexpr float kTwoPi = 6.28318530717958647692f;
 
 // Longest comet tail, at tail == 1, expressed as a fraction of the track
@@ -136,9 +127,17 @@ float sine_wave (double t, int /*barIdx*/, int pixel, int nPix, int /*nBars*/, f
 
 float sparkle (double t, int barIdx, int pixel, int /*nPix*/, int /*nBars*/, float /*tail*/) noexcept
 {
-    constexpr float rate = 4.0f;
-    const float val = std::sin (kTwoPi * (static_cast<float> (t) * rate + sparklePhase (barIdx, pixel)));
-    return val > 0.6f ? 1.0f : 0.0f;
+    // Random twinkle, fully decoupled per pixel — each cell runs its own rate
+    // and phase, so cells pop and fade independently in time and space (no
+    // coherent wave). Re-hashed per (cell, its own frame), fading out.
+    const std::uint32_t id = static_cast<std::uint32_t> (barIdx * 64 + pixel);
+    const float ph    = hash01 (id);
+    const float rate  = 3.5f + 4.0f * hash01 (id + 99u);
+    const float local = static_cast<float> (t) * rate + ph * 53.0f;
+    const int   frame = static_cast<int> (local);
+    const float frac  = local - static_cast<float> (frame);
+    const float h = hash01 (id * 2654435761u + static_cast<std::uint32_t> (frame) * 40503u);
+    return h > 0.72f ? (1.0f - frac) : 0.0f;
 }
 
 float breathe (double t, int /*barIdx*/, int /*pixel*/, int /*nPix*/, int /*nBars*/, float /*tail*/) noexcept
@@ -146,18 +145,34 @@ float breathe (double t, int /*barIdx*/, int /*pixel*/, int /*nPix*/, int /*nBar
     return (1.0f + std::sin (kTwoPi * static_cast<float> (t) / 4.0f)) * 0.5f;
 }
 
-float sweep_up (double t, int /*barIdx*/, int pixel, int nPix, int /*nBars*/, float /*tail*/) noexcept
+float spiral (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept
 {
-    const double phase = std::fmod (t, 1.0);
-    const int fill = static_cast<int> (phase * nPix) + 1;
-    return pixel <= fill ? 1.0f : 0.0f;
+    // Barber-pole helix: a diagonal stripe winding around the bars as it
+    // climbs, scrolling upward over time. The trail (tail) thickens the stripe.
+    const float turns = 1.5f;
+    const float helix = static_cast<float> (barIdx) / static_cast<float> (nBars)
+                      - static_cast<float> (pixel - 1) / static_cast<float> (nPix) * turns
+                      - static_cast<float> (t) * 0.5f;
+    const float frac  = helix - std::floor (helix);          // 0..1 around the pole
+    const float width = 0.12f + 0.25f * tail;                // velocity → stripe thickness
+    const float d     = std::min (frac, 1.0f - frac);
+    return d < width ? 1.0f - d / width : 0.0f;
 }
 
-float sweep_down (double t, int /*barIdx*/, int pixel, int nPix, int /*nBars*/, float /*tail*/) noexcept
+float converge (double t, int barIdx, int pixel, int nPix, int nBars, float /*tail*/) noexcept
 {
-    const double phase = std::fmod (t, 1.0);
-    const int fill = nPix - static_cast<int> (phase * nPix);
-    return pixel >= fill ? 1.0f : 0.0f;
+    // Grid-aware burst: a front expands from the grid centre outward in all
+    // directions, filling the whole grid in one beat (taller than wide, so it
+    // reads as mostly vertical), then resets and bursts again.
+    const float cy = (static_cast<float> (nPix) + 1.0f) * 0.5f;
+    const float cx = (static_cast<float> (nBars) - 1.0f) * 0.5f;
+    const float vd = std::fabs (static_cast<float> (pixel)  - cy) / (static_cast<float> (nPix)  * 0.5f);
+    const float hd = std::fabs (static_cast<float> (barIdx) - cx) / (static_cast<float> (nBars) * 0.5f);
+    const float d  = std::max (vd, hd);                          // rectangular front fills corners
+    const float radius = static_cast<float> (std::fmod (t, 1.0));
+    const float front  = radius - d;
+    if (front < 0.0f) return 0.0f;
+    return front < 0.18f ? 1.0f : 0.75f;                         // bright leading edge, fill behind
 }
 
 float alt_swap (double t, int barIdx, int /*pixel*/, int /*nPix*/, int /*nBars*/, float /*tail*/) noexcept
@@ -463,10 +478,16 @@ float zigzag (double t, int barIdx, int pixel, int nPix, int nBars, float /*tail
 
 float sparkle_few (double t, int barIdx, int pixel, int /*nPix*/, int /*nBars*/, float /*tail*/) noexcept
 {
-    // Like sparkle but far sparser — only a handful of pixels lit at once.
-    constexpr float rate = 3.0f;
-    const float val = std::sin (kTwoPi * (static_cast<float> (t) * rate + sparklePhase (barIdx, pixel)));
-    return val > 0.93f ? 1.0f : 0.0f;
+    // Same decoupled per-pixel twinkle as sparkle, but far sparser (only a
+    // handful lit at once) and a little slower.
+    const std::uint32_t id = static_cast<std::uint32_t> (barIdx * 64 + pixel);
+    const float ph    = hash01 (id);
+    const float rate  = 2.5f + 2.5f * hash01 (id + 99u);
+    const float local = static_cast<float> (t) * rate + ph * 53.0f;
+    const int   frame = static_cast<int> (local);
+    const float frac  = local - static_cast<float> (frame);
+    const float h = hash01 (id * 2654435761u + static_cast<std::uint32_t> (frame) * 40503u);
+    return h > 0.92f ? (1.0f - frac) : 0.0f;   // ~8% of cells, fading out
 }
 
 float fast_ball (double t, int barIdx, int pixel, int nPix, int nBars, float /*tail*/) noexcept
@@ -480,15 +501,42 @@ float fast_ball (double t, int barIdx, int pixel, int nPix, int nBars, float /*t
     return d == 0 ? 1.0f : (d == 1 ? 0.3f : 0.0f);
 }
 
-float pong (double t, int barIdx, int pixel, int nPix, int /*nBars*/, float /*tail*/) noexcept
+float pong (double t, int barIdx, int pixel, int nPix, int nBars, float /*tail*/) noexcept
 {
-    // Atari Pong: 2-pixel paddles parked at the top and bottom of each bar,
-    // with a ball bouncing between them (phase-offset per bar).
-    if (pixel <= 2 || pixel >= nPix - 1)
-        return 1.0f;                                   // paddles
-    const float h    = std::fabs (std::sin (kTwoPi * (static_cast<float> (t) * 0.8f + barIdx * 0.2f)));
-    const int   ball = 3 + static_cast<int> (h * (nPix - 5));
-    return pixel == ball ? 1.0f : 0.0f;
+    // Atari Pong across the whole 4×18 grid: ONE ball drifts diagonally
+    // (fast vertical bounce, slow horizontal drift — both triangle waves so
+    // the speed is constant and reflections are sharp), bouncing between a
+    // top and a bottom paddle. Each paddle is 2 wide × 1 tall and slides
+    // sideways to track the ball's column.
+    const float tf  = static_cast<float> (t);
+    const float py  = tf * 0.5f;   // one full bounce per 2 beats → reaches a paddle on each beat
+    const float px  = tf * 0.37f + 0.25f;
+    const float vYf = 2.0f * std::fabs (py - std::floor (py + 0.5f));   // 0(bottom)..1(top)
+    const float vXf = 2.0f * std::fabs (px - std::floor (px + 0.5f));   // 0..1..0 horizontal
+
+    const float ballXf = vXf * static_cast<float> (nBars - 1);
+    const int   ballY  = static_cast<int> (2.0f + vYf * static_cast<float> (nPix - 3) + 0.5f);  // rows 2..nPix-1
+    const int   ballX  = static_cast<int> (ballXf + 0.5f);                                      // bars 0..nBars-1
+
+    // Each paddle drifts on its OWN slow path, but commits to the ball's
+    // column as the ball nears its end — so the two read as independent
+    // players that only dart across on their own turn.
+    const float topDrift = (0.5f + 0.5f * std::sin (kTwoPi * tf * 0.23f))          * static_cast<float> (nBars - 1);
+    const float botDrift = (0.5f + 0.5f * std::sin (kTwoPi * (tf * 0.17f + 0.37f))) * static_cast<float> (nBars - 1);
+    const float wTop = vYf * vYf;                       // commit only when ball is high
+    const float wBot = (1.0f - vYf) * (1.0f - vYf);     // ...or low
+    const int   topX = static_cast<int> (topDrift * (1.0f - wTop) + ballXf * wTop + 0.5f);
+    const int   botX = static_cast<int> (botDrift * (1.0f - wBot) + ballXf * wBot + 0.5f);
+
+    const int topLeft = std::min (std::max (topX, 0), nBars - 2);   // 2-wide windows
+    const int botLeft = std::min (std::max (botX, 0), nBars - 2);
+
+    // Paddles live on the very top and bottom rows.
+    if (pixel == nPix)  return (barIdx == topLeft || barIdx == topLeft + 1) ? 1.0f : 0.0f;
+    if (pixel == 1)     return (barIdx == botLeft || barIdx == botLeft + 1) ? 1.0f : 0.0f;
+
+    // The ball — a single hard pixel.
+    return (barIdx == ballX && pixel == ballY) ? 1.0f : 0.0f;
 }
 
 
@@ -521,22 +569,18 @@ RecipeRGB comet (double t, int /*barIdx*/, int pixel, int nPix, int /*nBars*/) n
     return { f, f * f * 0.8f, f * f * f * 0.3f };
 }
 
-RecipeRGB vu_meter (double t, int barIdx, int pixel, int nPix, int /*nBars*/) noexcept
+RecipeRGB vu_meter (double t, int /*barIdx*/, int pixel, int nPix, int /*nBars*/) noexcept
 {
-    // Classic meter: green → yellow → red up the bar. Each bar bounces to a
-    // re-hashed peak every beat and decays toward its floor.
-    const float phase = static_cast<float> (std::fmod (t, 1.0));
-    const int   beat  = static_cast<int> (t);
-    const float peak  = 0.55f + 0.45f * hash01 (static_cast<std::uint32_t> (beat * 4 + barIdx));
-    const float level = peak * (1.0f - 0.8f * phase);
-    const float y = static_cast<float> (pixel) / static_cast<float> (nPix);
+    // Smooth meter, UNIFORM across all bars, pumping on the beat: the level
+    // snaps up on each beat and decays, lighting a smooth green → yellow → red
+    // gradient up to it.
+    const float ph    = static_cast<float> (std::fmod (t, 1.0));
+    const float level = 0.25f + 0.7f * std::exp (-ph * 2.5f);   // beat pump + floor
+    const float y     = static_cast<float> (pixel) / static_cast<float> (nPix);
     if (y > level)
         return { 0.0f, 0.0f, 0.0f };
-    if (y < 0.60f)
-        return { 0.0f, 1.0f, 0.0f };
-    if (y < 0.85f)
-        return { 1.0f, 0.9f, 0.0f };
-    return { 1.0f, 0.0f, 0.0f };
+    if (y < 0.5f) { const float u = y / 0.5f;          return { u, 0.4f + 0.5f * u, 0.0f }; }
+    const float u = (y - 0.5f) / 0.5f;                 return { 1.0f, 0.9f * (1.0f - u), 0.0f };
 }
 
 RecipeRGB fire (double t, int barIdx, int pixel, int nPix, int /*nBars*/) noexcept
@@ -606,18 +650,31 @@ RecipeRGB night_sky (double t, int barIdx, int pixel, int /*nPix*/, int /*nBars*
     return { base.r + b * 0.8f, base.g + b * 0.85f, std::min (1.0f, base.b + b) };
 }
 
-RecipeRGB skyline (double t, int barIdx, int pixel, int nPix, int /*nBars*/) noexcept
+RecipeRGB police (double t, int barIdx, int pixel, int nPix, int nBars) noexcept
 {
-    // A city skyline at night: each bar is a building of random height; lit
-    // windows glow warm amber and flicker slowly, the sky above stays dark.
-    const std::uint32_t id = static_cast<std::uint32_t> (barIdx * 64 + pixel);
-    const float bh = 0.4f + 0.5f * hash01 (static_cast<std::uint32_t> (barIdx) + 99u);  // building height
-    const float y  = static_cast<float> (pixel) / static_cast<float> (nPix);
-    if (y > bh)                              return { 0.0f, 0.0f, 0.01f };  // sky
-    if (hash01 (id + 333u) >= 0.5f)          return { 0.02f, 0.012f, 0.0f }; // dark wall
-    const float fl = std::sin (kTwoPi * (0.3f * static_cast<float> (t) + hash01 (id) * 5.0f));
-    const float on = fl > -0.3f ? 1.0f : 0.18f;
-    return { 1.0f * on, 0.68f * on, 0.24f * on };  // warm window
+    // Mostly red, with an intensity gradient floating over the whole grid; then
+    // scattered bright-blue 2×2 pulses flash through in the top half.
+    const float x = nBars > 1 ? static_cast<float> (barIdx) / static_cast<float> (nBars - 1) : 0.5f;
+    const float y = static_cast<float> (pixel - 1) / static_cast<float> (nPix);
+    const float wave = 0.5f + 0.5f * std::sin (kTwoPi * (x * 0.7f + y * 1.1f + 0.3f * static_cast<float> (t)));
+    const RecipeRGB red = { 0.4f + 0.6f * wave, 0.0f, 0.0f };
+
+    if (pixel > nPix / 2)
+    {
+        for (int s = 0; s < 4; ++s)                              // a few scattered blue pulses
+        {
+            const float ph  = static_cast<float> (t) * 2.5f + static_cast<float> (s) * 0.37f;
+            const int   cyc = static_cast<int> (ph);
+            if (ph - static_cast<float> (cyc) >= 0.4f)
+                continue;                                        // each flashes ~40% of its cycle
+            const std::uint32_t hid = static_cast<std::uint32_t> (s * 131 + cyc * 7919);
+            const int bb = static_cast<int> (hash01 (hid)       * static_cast<float> (nBars - 1));         // 2-wide
+            const int bp = nPix / 2 + 1 + static_cast<int> (hash01 (hid + 55u) * static_cast<float> (nPix / 2 - 1)); // 2-tall, top half
+            if ((barIdx == bb || barIdx == bb + 1) && (pixel == bp || pixel == bp + 1))
+                return { 0.1f, 0.1f, 1.0f };                     // blue pulse through
+        }
+    }
+    return red;
 }
 
 RecipeRGB embers (double t, int barIdx, int pixel, int nPix, int /*nBars*/) noexcept
@@ -670,13 +727,16 @@ RecipeRGB nebula (double t, int barIdx, int pixel, int nPix, int nBars) noexcept
 
 RecipeRGB sunset (double t, int /*barIdx*/, int pixel, int nPix, int /*nBars*/) noexcept
 {
-    // Dusk gradient drifting up the bar: deep purple (top) → magenta → orange
-    // (bottom), the whole band sinking slowly.
-    const float y = static_cast<float> (pixel - 1) / static_cast<float> (nPix);
-    const float h = 0.02f + 0.20f * y + 0.04f * std::sin (kTwoPi * static_cast<float> (t) / 10.0f);
-    const float wrapped = h < 0.0f ? h + 1.0f : h;     // keep into the red/purple end
-    const float hue = 0.92f + 0.16f * wrapped;          // ~violet → orange
-    return hueToRgb (hue, 0.85f);
+    // Smooth dusk gradient up the bar: soft amber (bottom) → magenta → violet
+    // (top). The warm low end is gently dimmed and desaturated so it glows
+    // instead of glaring, and the whole band drifts slowly.
+    const float y     = static_cast<float> (pixel - 1) / static_cast<float> (nPix);  // 0 bottom..1 top
+    const float drift = 0.02f * std::sin (kTwoPi * static_cast<float> (t) / 12.0f);
+    const float hue   = 0.06f - 0.28f * y + drift;     // amber → (red) → magenta → violet (wraps)
+    const float v     = 0.6f + 0.25f * y;              // a touch softer toward the bottom
+    const auto  c     = hueToRgb (hue, v);
+    const float wash  = 0.32f * (1.0f - y);            // desaturate the warm low end
+    return { c.r + wash * (v - c.r), c.g + wash * (v - c.g), c.b + wash * (v - c.b) };
 }
 
 RecipeRGB forest (double t, int barIdx, int pixel, int nPix, int /*nBars*/) noexcept
@@ -698,13 +758,17 @@ RecipeRGB lava (double t, int barIdx, int pixel, int nPix, int /*nBars*/) noexce
     return { 0.35f + 0.65f * hot, hot * hot * 0.55f, 0.0f };
 }
 
-RecipeRGB ice (double t, int barIdx, int pixel, int nPix, int /*nBars*/) noexcept
+RecipeRGB borealis (double t, int barIdx, int pixel, int nPix, int nBars) noexcept
 {
-    // Cold crystalline cyan/white with a slow glassy shimmer.
-    const float ph      = hash01 (static_cast<std::uint32_t> (barIdx * 64 + pixel));
-    const float shimmer = 0.5f + 0.5f * std::sin (kTwoPi * (0.4f * static_cast<float> (t) + ph * 5.0f));
-    const float v = 0.4f + 0.6f * shimmer;
-    return { v * 0.6f, v * 0.85f, v };                  // icy blue-white
+    // Aurora curtain: slow vertical waves shimmering through green → teal →
+    // violet, brighter toward the top like a sky curtain, drifting hue.
+    const float y    = static_cast<float> (pixel - 1) / static_cast<float> (nPix);
+    const float x    = static_cast<float> (barIdx) / static_cast<float> (std::max (1, nBars - 1));
+    const float wave = std::sin (kTwoPi * (y * 1.2f + 0.15f * static_cast<float> (t) + x * 0.6f))
+                     + 0.5f * std::sin (kTwoPi * (y * 2.3f - 0.09f * static_cast<float> (t) + x * 1.7f));
+    const float hue  = 0.45f + 0.16f * wave + 0.10f * std::sin (kTwoPi * 0.04f * static_cast<float> (t));
+    const float v    = std::clamp (0.2f + 0.4f * y + 0.35f * wave, 0.0f, 1.0f);
+    return hueToRgb (hue, v);
 }
 
 RecipeRGB candy (double t, int barIdx, int pixel, int nPix, int nBars) noexcept
@@ -716,14 +780,18 @@ RecipeRGB candy (double t, int barIdx, int pixel, int nPix, int nBars) noexcept
     return { 0.5f + 0.5f * c.r, 0.5f + 0.5f * c.g, 0.5f + 0.5f * c.b };  // pastel
 }
 
-RecipeRGB toxic (double t, int barIdx, int pixel, int nPix, int /*nBars*/) noexcept
+RecipeRGB magma (double t, int barIdx, int pixel, int nPix, int /*nBars*/) noexcept
 {
-    // Bubbling radioactive green/yellow ooze.
-    const float ph  = hash01 (static_cast<std::uint32_t> (barIdx * 64 + pixel));
-    const float bub = std::sin (kTwoPi * (0.7f * static_cast<float> (t) + ph * 6.0f))
-                    + std::sin (kTwoPi * (1.3f * static_cast<float> (t) + ph * 3.0f));
-    const float v   = std::clamp (0.4f + 0.4f * bub, 0.0f, 1.0f);
-    return { v * 0.7f, v, 0.0f };                        // acid green-yellow
+    // Cracked molten rock: a near-black crust shot through with bright
+    // red-orange fissures that glow and creep — mostly dark, hot at the peaks.
+    const float ph   = hash01 (static_cast<std::uint32_t> (barIdx * 64 + pixel));
+    const float flow = std::sin (kTwoPi * (static_cast<float> (pixel) / nPix * 1.2f
+                                          - 0.18f * static_cast<float> (t) + ph * 0.7f))
+                     + 0.6f * std::sin (kTwoPi * (0.5f * static_cast<float> (t) + ph * 4.0f));
+    const float heat = std::clamp ((flow - 0.4f) * 1.3f, 0.0f, 1.0f);   // dark crust, hot cracks
+    return { std::min (1.0f, heat * 1.8f),
+             std::clamp (heat * heat * 1.5f - 0.1f, 0.0f, 1.0f),
+             std::max (0.0f, heat * heat * heat * 0.8f - 0.1f) };
 }
 
 RecipeRGB storm (double t, int barIdx, int pixel, int /*nPix*/, int /*nBars*/) noexcept
@@ -742,40 +810,77 @@ RecipeRGB storm (double t, int barIdx, int pixel, int /*nPix*/, int /*nBars*/) n
 
 RecipeRGB galaxy (double t, int barIdx, int pixel, int nPix, int nBars) noexcept
 {
-    // Deep-space colour clouds with the occasional bright star.
-    const float x = static_cast<float> (barIdx) / static_cast<float> (std::max (1, nBars - 1));
-    const float y = static_cast<float> (pixel - 1) / static_cast<float> (nPix);
-    const float cloud = 0.5f + 0.5f * std::sin (kTwoPi * (x * 1.3f + y * 0.7f + 0.08f * static_cast<float> (t)));
-    const float hue   = 0.62f + 0.18f * cloud;           // blue → violet
-    auto c = hueToRgb (hue, 0.25f + 0.4f * cloud);
-    const std::uint32_t id = static_cast<std::uint32_t> (barIdx * 64 + pixel);
-    if (hash01 (id + 909u) < 0.06f)                       // sparse stars
+    // Very subtle deep blue→violet background, with at most a handful of slow
+    // white stars that fade in and out independently and reappear elsewhere.
+    const float gx   = nBars > 1 ? static_cast<float> (barIdx) / static_cast<float> (nBars - 1) : 0.5f;
+    const float y    = static_cast<float> (pixel - 1) / static_cast<float> (nPix);
+    const float wash = 0.5f + 0.5f * std::sin (kTwoPi * (0.05f * static_cast<float> (t) + gx * 0.6f + y * 0.4f));
+    RecipeRGB c = hueToRgb (0.72f + 0.05f * y + 0.02f * wash,        // violet, drifting slightly
+                            0.14f + 0.14f * y + 0.06f * wash);       // subtle moving gradient
+
+    // Five star "slots". Each lives one cycle (~1 bar at velocity 100, since
+    // velocity scales the clock), fading 0→1→0, then re-rolls to a new cell.
+    constexpr int   kStars = 5;
+    constexpr float period = 6.25f;   // 4 beats × (100/64): one bar per cycle at vel 100
+    for (int s = 0; s < kStars; ++s)
     {
-        const float tw = 0.5f + 0.5f * std::sin (kTwoPi * (static_cast<float> (t) + hash01 (id) * 6.0f));
-        const float s = tw * tw;
-        c = { std::min (1.0f, c.r + s), std::min (1.0f, c.g + s), std::min (1.0f, c.b + s) };
+        const float ph    = static_cast<float> (t) / period + static_cast<float> (s) * 0.2f;
+        const int   cycle = static_cast<int> (ph);
+        const float frac  = ph - static_cast<float> (cycle);                 // 0..1 lifetime
+        const std::uint32_t hid = static_cast<std::uint32_t> (s * 101 + cycle * 7919);
+        const int   sb = static_cast<int> (hash01 (hid) * static_cast<float> (nBars));
+        const int   sp = 1 + static_cast<int> (hash01 (hid + 55u) * static_cast<float> (nPix));
+        if (barIdx == sb && pixel == sp)
+        {
+            const float env  = std::sin (frac * 3.14159265f);   // fade in → out
+            const float star = env * env;
+            c = { std::min (1.0f, c.r + star), std::min (1.0f, c.g + star), std::min (1.0f, c.b + star) };
+        }
     }
     return c;
 }
 
-RecipeRGB reef (double t, int barIdx, int pixel, int nPix, int /*nBars*/) noexcept
+RecipeRGB blocks (double t, int barIdx, int pixel, int nPix, int nBars) noexcept
 {
-    // Coral-reef palette: warm corals and teals waving gently.
-    const float ph   = hash01 (static_cast<std::uint32_t> (barIdx * 64 + pixel));
-    const float wave = 0.5f + 0.5f * std::sin (kTwoPi * (static_cast<float> (pixel) / nPix * 1.5f
-                                              - 0.2f * static_cast<float> (t) + ph));
-    const float hue  = ph < 0.5f ? 0.03f + 0.05f * wave    // coral
-                                 : 0.48f + 0.05f * wave;   // teal
-    return hueToRgb (hue, 0.4f + 0.6f * wave);
+    // Sharp yellow & purple blocks. Each grid QUADRANT shows only ONE colour at
+    // a time (re-chosen each beat), and the blocks within are sparse — so it
+    // reads as big single-colour patches rather than a mixed wall.
+    const int quad  = (pixel <= nPix / 2 ? 0 : 2) + (barIdx < nBars / 2 ? 0 : 1);
+    const int phase = static_cast<int> (t);                                     // re-roll each beat
+    const bool yellow = hash01 (static_cast<std::uint32_t> (quad * 131 + phase * 7919)) < 0.5f;
+
+    const int seg = (pixel - 1) / 3;
+    const float h = hash01 (static_cast<std::uint32_t> (barIdx * 16 + seg + phase * 40503));
+    if (h < 0.55f)
+        return { 0.0f, 0.0f, 0.0f };                                            // sparse: >half dark
+    return yellow ? RecipeRGB { 1.0f, 0.82f, 0.05f }                            // yellow quadrant
+                  : RecipeRGB { 0.52f, 0.04f, 0.86f };                          // purple quadrant
 }
 
-RecipeRGB disco (double t, int barIdx, int pixel, int nPix, int /*nBars*/) noexcept
+RecipeRGB disco (double t, int barIdx, int pixel, int nPix, int nBars) noexcept
 {
-    // Saturday-night colour blocks: each bar segment flips to a new hue on a
-    // steady pulse.
-    const int   seg   = (pixel - 1) / 3;
-    const int   beat  = static_cast<int> (t * 2.0);
-    const float hue   = hash01 (static_cast<std::uint32_t> (beat * 16 + barIdx * 4 + seg));
+    // Colour blocks masked to whole AREAS, so at least half the grid stays
+    // dark: each pulse picks a region (a half, or a diagonal pair of quadrants)
+    // to light, and the colour blocks inside it shuffle. The lit region jumps
+    // around, so the colour moves in big chunks rather than filling everything.
+    const int  step    = static_cast<int> (t * 2.0);   // ~twice per beat
+    const int  pattern = static_cast<int> (hash01 (static_cast<std::uint32_t> (step) * 2654435761u) * 6.0f);
+    const bool leftHalf = barIdx < nBars / 2;
+    const bool lowHalf  = pixel <= nPix / 2;
+    bool lit;
+    switch (pattern)
+    {
+        case 0:  lit = lowHalf;               break;   // bottom half
+        case 1:  lit = ! lowHalf;             break;   // top half
+        case 2:  lit = leftHalf;              break;   // left half
+        case 3:  lit = ! leftHalf;            break;   // right half
+        case 4:  lit = (leftHalf == lowHalf); break;   // diagonal quadrants
+        default: lit = (leftHalf != lowHalf); break;   // anti-diagonal quadrants
+    }
+    if (! lit)
+        return { 0.0f, 0.0f, 0.0f };
+    const int   seg = (pixel - 1) / 3;
+    const float hue = hash01 (static_cast<std::uint32_t> (step * 16 + barIdx * 4 + seg));
     return hueToRgb (hue, 1.0f);
 }
 
@@ -795,7 +900,7 @@ RecipeRGB heatmap (double t, int barIdx, int pixel, int nPix, int nBars) noexcep
     const float cy = 0.5f + 0.4f * std::sin (kTwoPi * static_cast<float> (t) / 7.0f + 1.0f);
     const float x  = static_cast<float> (barIdx) / static_cast<float> (std::max (1, nBars - 1));
     const float y  = static_cast<float> (pixel - 1) / static_cast<float> (nPix);
-    const float dx = (x - cx) / 0.5f, dy = (y - cy) / 0.5f;
+    const float dx = (x - cx) / 0.95f, dy = (y - cy) / 0.5f;   // wider horizontal glow
     const float heat = std::clamp (1.0f - std::sqrt (dx * dx + dy * dy), 0.0f, 1.0f);
     // blue(0) → cyan → green → yellow → red(1)
     const float hue = 0.66f * (1.0f - heat);
@@ -815,8 +920,8 @@ constexpr std::array<DynamicFn, kNumChases> kChasesTable {{
     &chase_down,  // 25
     &ping_pong,   // 26
     &snake,       // 27
-    &sweep_up,    // 28
-    &sweep_down,  // 29
+    &spiral,      // 28
+    &converge,    // 29
     &diag_up,     // 30
     &diag_down,   // 31
     &wave_train,  // 32
@@ -863,7 +968,7 @@ constexpr std::array<DynamicColorFn, kNumColorDyn> kColorTable {{
     &desert_breathe,  // 64
     &vu_smooth,       // 65
     &night_sky,       // 66
-    &skyline,         // 67
+    &police,          // 67
     &embers,          // 68
     &plasma,          // 69
     &ocean,           // 70
@@ -871,12 +976,12 @@ constexpr std::array<DynamicColorFn, kNumColorDyn> kColorTable {{
     &sunset,          // 72  ── octave C4
     &forest,          // 73
     &lava,            // 74
-    &ice,             // 75
+    &borealis,        // 75
     &candy,           // 76
-    &toxic,           // 77
+    &magma,           // 77
     &storm,           // 78
     &galaxy,          // 79
-    &reef,            // 80
+    &blocks,          // 80
     &disco,           // 81
     &twilight,        // 82
     &heatmap,         // 83
