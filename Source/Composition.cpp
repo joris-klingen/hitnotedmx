@@ -24,11 +24,12 @@ namespace hitnotedmx
 //   Bar / pixel-zone select  Palette ROUTE: >= 64 → primary, < 64 → secondary
 //                            (kVelocityThreshold; see routeForVelocity)
 //   Chases (brightness)      TAIL length of the comet head — soft = long trail
-//   Wild (brightness)        SPEED — scales the recipe's animation clock
+//   Wild (brightness)        Beat-synced SPEED division (127 = 1/16 … 0 = 1/1);
+//                            sparkle / sparkle_few stay free-running
 //   Breathes (brightness)    DENSITY — soft carves the shape into smooth
-//                            patchy islands (breatheDensityMask)
-//   Colour dynamics          SPEED of the recipe's animation — hard = faster
-//                            (scales the recipe's `t`; section 5 / 7)
+//                            patchy islands (breatheDensityMask); half speed
+//   Colour dynamics          SPEED of the recipe's animation — hard = faster;
+//                            EXCEPT VU meter: beat-locked, velocity → gain
 //   Palette colour notes     INTENSITY (scale) + colour-FADE duration — hard =
 //                            bright & instant, soft = dim & slow (pickColor /
 //                            advanceFade)
@@ -234,6 +235,17 @@ inline float hashf (std::uint32_t h) noexcept   // avalanche → [0,1)
     return static_cast<float> (h) / 4294967296.0f;
 }
 
+// Velocity → beat-synced clock multiplier for the Wild bank: 127 = 1/16,
+// 0 = 1/1. Powers of two keep the recipes' frame boundaries on the beat grid.
+inline float wildBeatSpeed (std::uint8_t vel) noexcept
+{
+    if (vel <  26) return 0.25f;   // 1/1  (whole note)
+    if (vel <  52) return 0.5f;    // 1/2
+    if (vel <  77) return 1.0f;    // 1/4
+    if (vel < 103) return 2.0f;    // 1/8
+    return 4.0f;                   // 1/16
+}
+
 // Patchy density mask for the Breathes bank (driven by the note's velocity).
 // The field is a few smooth Gaussian humps — one dominant — and `density`
 // sets a soft threshold below which cells go dark. Sweeping velocity 127 → 0
@@ -417,17 +429,19 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
     // a colour route; the colour comes from the bar/zone selectors or the
     // primary palette. What the note's VELOCITY means depends on the bank:
     //   • Chases   → trail length (tail; soft = long comet)
-    //   • Wild     → animation speed (scales the recipe's clock)
-    //   • Breathes → density (carves the breathe into smooth patchy islands)
-    // `mode` records which, and `param` carries the bank-specific value.
+    //   • Wild     → beat-synced speed (127 = 1/16 … 0 = 1/1) — except sparkle /
+    //                sparkle_few, which stay free (continuous velocity speed)
+    //   • Breathes → island density (+ half speed, except ripple)
+    // `tScale` multiplies tBeats before the call; `arg` is the recipe's tail
+    // (chases) or the breathe density; `seed` positions the breathe islands.
     //
-    // Colour dynamics (the Multicolor bank) are gathered separately: they emit
-    // RGB directly and, when held, replace the palette route for the lit
-    // pixels (brightness dynamics still multiply on top). Their velocity drives
-    // SPEED. Small fixed-size buffers; the audio thread never allocates.
+    // Colour dynamics (Multicolor) emit RGB directly and replace the palette
+    // route for the lit pixels (brightness dynamics still multiply on top).
+    // Velocity → SPEED, except VU meter, which is beat-LOCKED with velocity →
+    // gain. Small fixed-size buffers; the audio thread never allocates.
     enum DynMode { kTail = 0, kSpeed = 1, kDensity = 2 };
-    struct ActiveRecipe      { DynamicFn      fn; float param; int mode; float seed; };
-    struct ActiveColorRecipe { DynamicColorFn fn; float speed; };
+    struct ActiveRecipe      { DynamicFn      fn; int mode; float tScale; float arg; float seed; };
+    struct ActiveColorRecipe { DynamicColorFn fn; float tScale; float param; };
     constexpr int kMaxRecipes = 16;
     std::array<ActiveRecipe,      kMaxRecipes> recipes {};
     std::array<ActiveColorRecipe, kMaxRecipes> colorRecipes {};
@@ -448,24 +462,30 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
             if (nRecipes >= kMaxRecipes)
                 return;
             if (isWildPitch (pitch))
-                recipes[nRecipes++] = { fn, std::clamp (vel / 64.0f, 0.2f, 2.5f), kSpeed, 0.0f };  // speed
+            {
+                const bool freeRunning = (pitch == kSparklePitch || pitch == kSparkleFewPitch);
+                const float tScale = freeRunning ? std::clamp (vel / 64.0f, 0.2f, 2.5f)
+                                                 : wildBeatSpeed (n.velocity);
+                recipes[nRecipes++] = { fn, kSpeed, tScale, 0.0f, 0.0f };
+            }
             else if (isBreathesPitch (pitch))
             {
-                // Seed the island layout from the note's start beat, so each
-                // retrigger lands the patches somewhere new (golden-ratio mix).
+                const float tScale = (pitch == kRipplePitch) ? 1.0f : 0.5f;   // half speed (not ripple)
                 const float seed = static_cast<float> (std::fmod (n.startBeat * 0.61803398875 + 0.5, 1.0));
-                recipes[nRecipes++] = { fn, vel / 127.0f, kDensity, seed };                         // density
+                recipes[nRecipes++] = { fn, kDensity, tScale, vel / 127.0f, seed };
             }
             else
-                recipes[nRecipes++] = { fn, 1.0f - vel / 127.0f, kTail, 0.0f };                     // tail
+                recipes[nRecipes++] = { fn, kTail, 1.0f, 1.0f - vel / 127.0f, 0.0f };   // tail
         }
         else if (isColorDynPitch (pitch))
         {
             auto fn = getColorRecipe (pitch);
-            // Velocity → speed: ~0.2× (soft) up to 2.5× (hard), 1× near mid.
-            const float speed = std::clamp (vel / 64.0f, 0.2f, 2.5f);
-            if (fn != nullptr && nColorRecipes < kMaxRecipes)
-                colorRecipes[nColorRecipes++] = { fn, speed };
+            if (fn == nullptr || nColorRecipes >= kMaxRecipes)
+                return;
+            if (pitch == kVuMeterPitch)        // beat-locked timing, velocity → gain
+                colorRecipes[nColorRecipes++] = { fn, 1.0f, vel / 127.0f };
+            else                               // velocity → speed (~0.2×..2.5×)
+                colorRecipes[nColorRecipes++] = { fn, std::clamp (vel / 64.0f, 0.2f, 2.5f), 0.0f };
         }
     });
 
@@ -534,14 +554,13 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
                 for (int i = 0; i < nRecipes; ++i)
                 {
                     const auto& r = recipes[i];
+                    const double rt = tBeats * static_cast<double> (r.tScale);
                     float v;
-                    if (r.mode == kSpeed)        // Wild: velocity scales the clock
-                        v = r.fn (tBeats * r.param, barIdx, pixel, bar.pixels, nBars, 0.0f);
-                    else if (r.mode == kDensity) // Breathes: velocity → patchy islands
-                        v = r.fn (tBeats, barIdx, pixel, bar.pixels, nBars, 0.0f)
-                          * breatheDensityMask (barIdx, pixel, bar.pixels, nBars, r.param, r.seed);
-                    else                          // Chases: velocity → trail length
-                        v = r.fn (tBeats, barIdx, pixel, bar.pixels, nBars, r.param);
+                    if (r.mode == kDensity)      // Breathes: carve into smooth islands
+                        v = r.fn (rt, barIdx, pixel, bar.pixels, nBars, 0.0f)
+                          * breatheDensityMask (barIdx, pixel, bar.pixels, nBars, r.arg, r.seed);
+                    else                          // Chases (tail=arg) / Wild (arg unused)
+                        v = r.fn (rt, barIdx, pixel, bar.pixels, nBars, r.arg);
                     dyn = std::max (dyn, v);
                 }
                 dynBrightness = dyn;
@@ -568,9 +587,9 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
                 cr = cg = cb = 0.0f;
                 for (int i = 0; i < nColorRecipes; ++i)
                 {
-                    // Velocity scales the animation clock (speed).
-                    const auto c = colorRecipes[i].fn (tBeats * colorRecipes[i].speed,
-                                                       barIdx, pixel, bar.pixels, nBars);
+                    const auto& r = colorRecipes[i];   // tScale = speed (1 for VU, beat-locked)
+                    const auto c = r.fn (tBeats * static_cast<double> (r.tScale),
+                                         barIdx, pixel, bar.pixels, nBars, r.param);
                     cr = std::max (cr, c.r);
                     cg = std::max (cg, c.g);
                     cb = std::max (cb, c.b);

@@ -49,11 +49,22 @@ inline constexpr int kNumColorDyn   = 24;
 inline constexpr int    kStrobePitch = kWildStart + 1;  // 49
 inline constexpr double kStrobeHz    = 10.0;
 
+// Per-recipe velocity exceptions handled in computeDmx:
+//   • Wild is beat-synced (velocity → 1/16..1/1 division) EXCEPT sparkle /
+//     sparkle_few, which stay free-running (continuous velocity → speed).
+//   • Breathes run at half speed EXCEPT ripple.
+//   • VU meter is beat-LOCKED (timing always on the beat) and velocity sets
+//     its range/gain instead of speed.
+inline constexpr int kSparklePitch    = kWildStart + 0;      // 48
+inline constexpr int kSparkleFewPitch = kWildStart + 9;      // 57
+inline constexpr int kRipplePitch     = kBreathesStart + 2;  // 38
+inline constexpr int kVuMeterPitch    = kColorDynStart + 2;  // 62
+
 using DynamicFn = float (*) (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 
 struct RecipeRGB { float r, g, b; };
 
-using DynamicColorFn = RecipeRGB (*) (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
+using DynamicColorFn = RecipeRGB (*) (double t, int barIdx, int pixel, int nPix, int nBars, float param) noexcept;
 
 // Look up the brightness recipe for a MIDI pitch (Chases / Breathes / Wild).
 // Returns nullptr outside those banks (and for the null strobe slot).
@@ -127,32 +138,32 @@ float sparkle_few  (double t, int barIdx, int pixel, int nPix, int nBars, float 
 float fast_ball    (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float pong         (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 
-RecipeRGB rainbow_chase  (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
-RecipeRGB comet          (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
-RecipeRGB vu_meter       (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
-RecipeRGB fire           (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
-RecipeRGB desert_breathe (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
+RecipeRGB rainbow_chase  (double t, int barIdx, int pixel, int nPix, int nBars, float param) noexcept;
+RecipeRGB comet          (double t, int barIdx, int pixel, int nPix, int nBars, float param) noexcept;
+RecipeRGB vu_meter       (double t, int barIdx, int pixel, int nPix, int nBars, float param) noexcept;
+RecipeRGB fire           (double t, int barIdx, int pixel, int nPix, int nBars, float param) noexcept;
+RecipeRGB desert_breathe (double t, int barIdx, int pixel, int nPix, int nBars, float param) noexcept;
 // Multicolor (octave C3 fill).
-RecipeRGB vu_smooth      (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
-RecipeRGB night_sky      (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
-RecipeRGB police         (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
-RecipeRGB embers         (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
-RecipeRGB plasma         (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
-RecipeRGB ocean          (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
-RecipeRGB nebula         (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
+RecipeRGB vu_smooth      (double t, int barIdx, int pixel, int nPix, int nBars, float param) noexcept;
+RecipeRGB night_sky      (double t, int barIdx, int pixel, int nPix, int nBars, float param) noexcept;
+RecipeRGB police         (double t, int barIdx, int pixel, int nPix, int nBars, float param) noexcept;
+RecipeRGB embers         (double t, int barIdx, int pixel, int nPix, int nBars, float param) noexcept;
+RecipeRGB plasma         (double t, int barIdx, int pixel, int nPix, int nBars, float param) noexcept;
+RecipeRGB ocean          (double t, int barIdx, int pixel, int nPix, int nBars, float param) noexcept;
+RecipeRGB nebula         (double t, int barIdx, int pixel, int nPix, int nBars, float param) noexcept;
 
 // Multicolor (octave C4 — second column).
-RecipeRGB sunset         (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
-RecipeRGB forest         (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
-RecipeRGB lava           (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
-RecipeRGB borealis       (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
-RecipeRGB candy          (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
-RecipeRGB magma          (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
-RecipeRGB storm          (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
-RecipeRGB galaxy         (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
-RecipeRGB blocks         (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
-RecipeRGB disco          (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
-RecipeRGB twilight       (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
-RecipeRGB heatmap        (double t, int barIdx, int pixel, int nPix, int nBars) noexcept;
+RecipeRGB sunset         (double t, int barIdx, int pixel, int nPix, int nBars, float param) noexcept;
+RecipeRGB forest         (double t, int barIdx, int pixel, int nPix, int nBars, float param) noexcept;
+RecipeRGB lava           (double t, int barIdx, int pixel, int nPix, int nBars, float param) noexcept;
+RecipeRGB borealis       (double t, int barIdx, int pixel, int nPix, int nBars, float param) noexcept;
+RecipeRGB candy          (double t, int barIdx, int pixel, int nPix, int nBars, float param) noexcept;
+RecipeRGB magma          (double t, int barIdx, int pixel, int nPix, int nBars, float param) noexcept;
+RecipeRGB storm          (double t, int barIdx, int pixel, int nPix, int nBars, float param) noexcept;
+RecipeRGB galaxy         (double t, int barIdx, int pixel, int nPix, int nBars, float param) noexcept;
+RecipeRGB blocks         (double t, int barIdx, int pixel, int nPix, int nBars, float param) noexcept;
+RecipeRGB disco          (double t, int barIdx, int pixel, int nPix, int nBars, float param) noexcept;
+RecipeRGB twilight       (double t, int barIdx, int pixel, int nPix, int nBars, float param) noexcept;
+RecipeRGB heatmap        (double t, int barIdx, int pixel, int nPix, int nBars, float param) noexcept;
 
 }  // namespace hitnotedmx

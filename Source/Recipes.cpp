@@ -501,7 +501,7 @@ float fast_ball (double t, int barIdx, int pixel, int nPix, int nBars, float /*t
     return d == 0 ? 1.0f : (d == 1 ? 0.3f : 0.0f);
 }
 
-float pong (double t, int barIdx, int pixel, int nPix, int nBars, float /*tail*/) noexcept
+float pong (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept
 {
     // Atari Pong across the whole 4×18 grid: ONE ball drifts diagonally
     // (fast vertical bounce, slow horizontal drift — both triangle waves so
@@ -535,8 +535,16 @@ float pong (double t, int barIdx, int pixel, int nPix, int nBars, float /*tail*/
     if (pixel == nPix)  return (barIdx == topLeft || barIdx == topLeft + 1) ? 1.0f : 0.0f;
     if (pixel == 1)     return (barIdx == botLeft || barIdx == botLeft + 1) ? 1.0f : 0.0f;
 
-    // The ball — a single hard pixel.
-    return (barIdx == ballX && pixel == ballY) ? 1.0f : 0.0f;
+    // The ball, with a velocity-driven trail behind it (single pixel at tail 0).
+    if (barIdx != ballX)
+        return 0.0f;
+    const float saw    = py - std::floor (py + 0.5f);              // -0.5..0.5 (sign = up/down)
+    const int   behind = saw > 0.0f ? (ballY - pixel) : (pixel - ballY);   // steps behind the head
+    if (behind < 0) return 0.0f;
+    if (behind == 0) return 1.0f;
+    const float tailLen = 1.0f + tail * static_cast<float> (nPix) * 0.4f;
+    const float b = 1.0f - static_cast<float> (behind) / tailLen;
+    return b > 0.0f ? b : 0.0f;
 }
 
 
@@ -544,7 +552,7 @@ float pong (double t, int barIdx, int pixel, int nPix, int nBars, float /*tail*/
 // These return RGB already scaled by their own brightness; computeDmx routes
 // them in place of the palette colour.
 
-RecipeRGB rainbow_chase (double t, int /*barIdx*/, int pixel, int nPix, int /*nBars*/) noexcept
+RecipeRGB rainbow_chase (double t, int /*barIdx*/, int pixel, int nPix, int /*nBars*/, float /*param*/) noexcept
 {
     // The full hue wheel laid along the bar, scrolling upward (one wheel
     // revolution every 2 beats).
@@ -553,7 +561,7 @@ RecipeRGB rainbow_chase (double t, int /*barIdx*/, int pixel, int nPix, int /*nB
     return hueToRgb (h, 1.0f);
 }
 
-RecipeRGB comet (double t, int /*barIdx*/, int pixel, int nPix, int /*nBars*/) noexcept
+RecipeRGB comet (double t, int /*barIdx*/, int pixel, int nPix, int /*nBars*/, float /*param*/) noexcept
 {
     // A white-hot head running up the bar, cooling through amber to deep red
     // along a fixed ~0.7-bar trail (colour recipes take their speed from
@@ -569,13 +577,15 @@ RecipeRGB comet (double t, int /*barIdx*/, int pixel, int nPix, int /*nBars*/) n
     return { f, f * f * 0.8f, f * f * f * 0.3f };
 }
 
-RecipeRGB vu_meter (double t, int /*barIdx*/, int pixel, int nPix, int /*nBars*/) noexcept
+RecipeRGB vu_meter (double t, int /*barIdx*/, int pixel, int nPix, int /*nBars*/, float gain) noexcept
 {
-    // Smooth meter, UNIFORM across all bars, pumping on the beat: the level
-    // snaps up on each beat and decays, lighting a smooth green → yellow → red
-    // gradient up to it.
+    // Smooth meter, UNIFORM across all bars, pumping on the beat. Special case
+    // (handled in computeDmx): timing is always beat-LOCKED (t is not velocity-
+    // scaled), and velocity sets the RANGE/GAIN — `gain` in [0,1] scales how
+    // high the meter pumps.
     const float ph    = static_cast<float> (std::fmod (t, 1.0));
-    const float level = 0.25f + 0.7f * std::exp (-ph * 2.5f);   // beat pump + floor
+    const float range = 0.25f + 0.75f * std::clamp (gain, 0.05f, 1.0f);   // velocity → peak height
+    const float level = range * (0.35f + 0.65f * std::exp (-ph * 2.5f));  // beat pump + floor
     const float y     = static_cast<float> (pixel) / static_cast<float> (nPix);
     if (y > level)
         return { 0.0f, 0.0f, 0.0f };
@@ -583,7 +593,7 @@ RecipeRGB vu_meter (double t, int /*barIdx*/, int pixel, int nPix, int /*nBars*/
     const float u = (y - 0.5f) / 0.5f;                 return { 1.0f, 0.9f * (1.0f - u), 0.0f };
 }
 
-RecipeRGB fire (double t, int barIdx, int pixel, int nPix, int /*nBars*/) noexcept
+RecipeRGB fire (double t, int barIdx, int pixel, int nPix, int /*nBars*/, float /*param*/) noexcept
 {
     // Flickering heat, hotter at the bottom. Two incommensurate sines with a
     // per-cell hashed phase stand in for noise; the heat value drives a
@@ -599,7 +609,7 @@ RecipeRGB fire (double t, int barIdx, int pixel, int nPix, int /*nBars*/) noexce
              std::max (0.0f, heat * 0.6f - 0.45f) };
 }
 
-RecipeRGB desert_breathe (double t, int barIdx, int pixel, int nPix, int /*nBars*/) noexcept
+RecipeRGB desert_breathe (double t, int barIdx, int pixel, int nPix, int /*nBars*/, float /*param*/) noexcept
 {
     // A slow drift across warm sand/dusk hues (16-beat hue cycle) with a
     // gentle 8-beat brightness swell, phase-offset per bar.
@@ -613,7 +623,7 @@ RecipeRGB desert_breathe (double t, int barIdx, int pixel, int nPix, int /*nBars
     return { c.r * 0.95f + v * 0.05f, c.g * 0.85f + v * 0.15f, c.b * 0.85f + v * 0.15f };
 }
 
-RecipeRGB vu_smooth (double t, int barIdx, int pixel, int nPix, int /*nBars*/) noexcept
+RecipeRGB vu_smooth (double t, int barIdx, int pixel, int nPix, int /*nBars*/, float /*param*/) noexcept
 {
     // Fluent VU meter: the level glides on layered sines, the colour is a
     // smooth gradient (dark green → yellow → red up the bar), and the whole
@@ -637,7 +647,7 @@ RecipeRGB vu_smooth (double t, int barIdx, int pixel, int nPix, int /*nBars*/) n
     return { ramp.r * flash, ramp.g * flash, ramp.b * flash };
 }
 
-RecipeRGB night_sky (double t, int barIdx, int pixel, int /*nPix*/, int /*nBars*/) noexcept
+RecipeRGB night_sky (double t, int barIdx, int pixel, int /*nPix*/, int /*nBars*/, float /*param*/) noexcept
 {
     // Deep-blue sky with a scattering of twinkling cool-white stars.
     const RecipeRGB base { 0.0f, 0.02f, 0.08f };
@@ -650,7 +660,7 @@ RecipeRGB night_sky (double t, int barIdx, int pixel, int /*nPix*/, int /*nBars*
     return { base.r + b * 0.8f, base.g + b * 0.85f, std::min (1.0f, base.b + b) };
 }
 
-RecipeRGB police (double t, int barIdx, int pixel, int nPix, int nBars) noexcept
+RecipeRGB police (double t, int barIdx, int pixel, int nPix, int nBars, float /*param*/) noexcept
 {
     // Mostly red, with an intensity gradient floating over the whole grid; then
     // scattered bright-blue 2×2 pulses flash through in the top half.
@@ -677,7 +687,7 @@ RecipeRGB police (double t, int barIdx, int pixel, int nPix, int nBars) noexcept
     return red;
 }
 
-RecipeRGB embers (double t, int barIdx, int pixel, int nPix, int /*nBars*/) noexcept
+RecipeRGB embers (double t, int barIdx, int pixel, int nPix, int /*nBars*/, float /*param*/) noexcept
 {
     // Slow glowing embers — the fire palette, but calmer and longer-period.
     const float ph   = hash01 (static_cast<std::uint32_t> (barIdx * 64 + pixel));
@@ -687,7 +697,7 @@ RecipeRGB embers (double t, int barIdx, int pixel, int nPix, int /*nBars*/) noex
     return { std::min (1.0f, heat * 1.6f), heat * heat * 0.6f, heat * heat * heat * 0.1f };
 }
 
-RecipeRGB plasma (double t, int barIdx, int pixel, int nPix, int nBars) noexcept
+RecipeRGB plasma (double t, int barIdx, int pixel, int nPix, int nBars, float /*param*/) noexcept
 {
     // Classic shifting plasma field — three interfering sine planes mapped to
     // the hue wheel.
@@ -699,7 +709,7 @@ RecipeRGB plasma (double t, int barIdx, int pixel, int nPix, int nBars) noexcept
     return hueToRgb (0.5f + v / 6.0f, 0.9f);
 }
 
-RecipeRGB ocean (double t, int barIdx, int pixel, int nPix, int /*nBars*/) noexcept
+RecipeRGB ocean (double t, int barIdx, int pixel, int nPix, int /*nBars*/, float /*param*/) noexcept
 {
     // Teal/blue water with shimmering wave crests rolling up the bars.
     const float ph      = hash01 (static_cast<std::uint32_t> (barIdx * 64 + pixel));
@@ -710,7 +720,7 @@ RecipeRGB ocean (double t, int barIdx, int pixel, int nPix, int /*nBars*/) noexc
     return { 0.0f, v * 0.6f, v };
 }
 
-RecipeRGB nebula (double t, int barIdx, int pixel, int nPix, int nBars) noexcept
+RecipeRGB nebula (double t, int barIdx, int pixel, int nPix, int nBars, float /*param*/) noexcept
 {
     // Slow cosmic clouds drifting through purples and pinks.
     const float x = static_cast<float> (barIdx) / static_cast<float> (std::max (1, nBars - 1));
@@ -725,7 +735,7 @@ RecipeRGB nebula (double t, int barIdx, int pixel, int nPix, int nBars) noexcept
 
 // ---- colour bank, second octave -------------------------------------------
 
-RecipeRGB sunset (double t, int /*barIdx*/, int pixel, int nPix, int /*nBars*/) noexcept
+RecipeRGB sunset (double t, int /*barIdx*/, int pixel, int nPix, int /*nBars*/, float /*param*/) noexcept
 {
     // Smooth dusk gradient up the bar: soft amber (bottom) → magenta → violet
     // (top). The warm low end is gently dimmed and desaturated so it glows
@@ -739,7 +749,7 @@ RecipeRGB sunset (double t, int /*barIdx*/, int pixel, int nPix, int /*nBars*/) 
     return { c.r + wash * (v - c.r), c.g + wash * (v - c.g), c.b + wash * (v - c.b) };
 }
 
-RecipeRGB forest (double t, int barIdx, int pixel, int nPix, int /*nBars*/) noexcept
+RecipeRGB forest (double t, int barIdx, int pixel, int nPix, int /*nBars*/, float /*param*/) noexcept
 {
     // Dappled greens with slow shifting light filtering through.
     const float ph    = hash01 (static_cast<std::uint32_t> (barIdx * 64 + pixel));
@@ -748,7 +758,7 @@ RecipeRGB forest (double t, int barIdx, int pixel, int nPix, int /*nBars*/) noex
     return hueToRgb (hue, 0.35f + 0.55f * dapple);
 }
 
-RecipeRGB lava (double t, int barIdx, int pixel, int nPix, int /*nBars*/) noexcept
+RecipeRGB lava (double t, int barIdx, int pixel, int nPix, int /*nBars*/, float /*param*/) noexcept
 {
     // Thick molten flow — deep red base, slow bright orange cracks creeping.
     const float ph   = hash01 (static_cast<std::uint32_t> (barIdx * 64 + pixel));
@@ -758,7 +768,7 @@ RecipeRGB lava (double t, int barIdx, int pixel, int nPix, int /*nBars*/) noexce
     return { 0.35f + 0.65f * hot, hot * hot * 0.55f, 0.0f };
 }
 
-RecipeRGB borealis (double t, int barIdx, int pixel, int nPix, int nBars) noexcept
+RecipeRGB borealis (double t, int barIdx, int pixel, int nPix, int nBars, float /*param*/) noexcept
 {
     // Aurora curtain: slow vertical waves shimmering through green → teal →
     // violet, brighter toward the top like a sky curtain, drifting hue.
@@ -771,7 +781,7 @@ RecipeRGB borealis (double t, int barIdx, int pixel, int nPix, int nBars) noexce
     return hueToRgb (hue, v);
 }
 
-RecipeRGB candy (double t, int barIdx, int pixel, int nPix, int nBars) noexcept
+RecipeRGB candy (double t, int barIdx, int pixel, int nPix, int nBars, float /*param*/) noexcept
 {
     // Soft pastel rainbow scrolling gently.
     const float h = static_cast<float> (pixel - 1) / static_cast<float> (nPix)
@@ -780,7 +790,7 @@ RecipeRGB candy (double t, int barIdx, int pixel, int nPix, int nBars) noexcept
     return { 0.5f + 0.5f * c.r, 0.5f + 0.5f * c.g, 0.5f + 0.5f * c.b };  // pastel
 }
 
-RecipeRGB magma (double t, int barIdx, int pixel, int nPix, int /*nBars*/) noexcept
+RecipeRGB magma (double t, int barIdx, int pixel, int nPix, int /*nBars*/, float /*param*/) noexcept
 {
     // Cracked molten rock: a near-black crust shot through with bright
     // red-orange fissures that glow and creep — mostly dark, hot at the peaks.
@@ -794,7 +804,7 @@ RecipeRGB magma (double t, int barIdx, int pixel, int nPix, int /*nBars*/) noexc
              std::max (0.0f, heat * heat * heat * 0.8f - 0.1f) };
 }
 
-RecipeRGB storm (double t, int barIdx, int pixel, int /*nPix*/, int /*nBars*/) noexcept
+RecipeRGB storm (double t, int barIdx, int pixel, int /*nPix*/, int /*nBars*/, float /*param*/) noexcept
 {
     // Cold grey-blue cloudbank with sudden white lightning flashes.
     const float ph   = hash01 (static_cast<std::uint32_t> (barIdx * 64 + pixel));
@@ -808,7 +818,7 @@ RecipeRGB storm (double t, int barIdx, int pixel, int /*nPix*/, int /*nBars*/) n
     return { w * 0.8f, w * 0.85f, std::min (1.0f, w + 0.1f) };
 }
 
-RecipeRGB galaxy (double t, int barIdx, int pixel, int nPix, int nBars) noexcept
+RecipeRGB galaxy (double t, int barIdx, int pixel, int nPix, int nBars, float /*param*/) noexcept
 {
     // Very subtle deep blue→violet background, with at most a handful of slow
     // white stars that fade in and out independently and reappear elsewhere.
@@ -840,7 +850,7 @@ RecipeRGB galaxy (double t, int barIdx, int pixel, int nPix, int nBars) noexcept
     return c;
 }
 
-RecipeRGB blocks (double t, int barIdx, int pixel, int nPix, int nBars) noexcept
+RecipeRGB blocks (double t, int barIdx, int pixel, int nPix, int nBars, float /*param*/) noexcept
 {
     // Sharp yellow & purple blocks. Each grid QUADRANT shows only ONE colour at
     // a time (re-chosen each beat), and the blocks within are sparse — so it
@@ -857,7 +867,7 @@ RecipeRGB blocks (double t, int barIdx, int pixel, int nPix, int nBars) noexcept
                   : RecipeRGB { 0.52f, 0.04f, 0.86f };                          // purple quadrant
 }
 
-RecipeRGB disco (double t, int barIdx, int pixel, int nPix, int nBars) noexcept
+RecipeRGB disco (double t, int barIdx, int pixel, int nPix, int nBars, float /*param*/) noexcept
 {
     // Colour blocks masked to whole AREAS, so at least half the grid stays
     // dark: each pulse picks a region (a half, or a diagonal pair of quadrants)
@@ -884,7 +894,7 @@ RecipeRGB disco (double t, int barIdx, int pixel, int nPix, int nBars) noexcept
     return hueToRgb (hue, 1.0f);
 }
 
-RecipeRGB twilight (double t, int /*barIdx*/, int pixel, int nPix, int /*nBars*/) noexcept
+RecipeRGB twilight (double t, int /*barIdx*/, int pixel, int nPix, int /*nBars*/, float /*param*/) noexcept
 {
     // Calm vertical gradient through deep blue → indigo → rose, breathing.
     const float y = static_cast<float> (pixel - 1) / static_cast<float> (nPix);
@@ -893,7 +903,7 @@ RecipeRGB twilight (double t, int /*barIdx*/, int pixel, int nPix, int /*nBars*/
     return hueToRgb (hue, v);
 }
 
-RecipeRGB heatmap (double t, int barIdx, int pixel, int nPix, int nBars) noexcept
+RecipeRGB heatmap (double t, int barIdx, int pixel, int nPix, int nBars, float /*param*/) noexcept
 {
     // Thermal-camera field: a moving intensity blob mapped blue→green→yellow→red.
     const float cx = 0.5f + 0.4f * std::sin (kTwoPi * static_cast<float> (t) / 5.0f);
@@ -921,7 +931,7 @@ constexpr std::array<DynamicFn, kNumChases> kChasesTable {{
     &ping_pong,   // 26
     &snake,       // 27
     &spiral,      // 28
-    &converge,    // 29
+    &pong,        // 29
     &diag_up,     // 30
     &diag_down,   // 31
     &wave_train,  // 32
@@ -957,7 +967,7 @@ constexpr std::array<DynamicFn, kNumWild> kWildTable {{
     &zigzag,        // 56
     &sparkle_few,   // 57
     &fast_ball,     // 58
-    &pong,          // 59
+    &converge,      // 59
 }};
 
 constexpr std::array<DynamicColorFn, kNumColorDyn> kColorTable {{

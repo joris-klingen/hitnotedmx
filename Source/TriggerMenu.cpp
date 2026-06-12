@@ -93,7 +93,7 @@ void TriggerMenu::buildModel()
           "Zone 7", "Zone 8", "Zone 9", "Even", "Odd", "Thirds" }));
 
     columns.push_back (trigCol ("Chases", kChasesStart,
-        { "Chase up", "Chase dn", "Ping-pong", "Snake", "Spiral", "Converge",
+        { "Chase up", "Chase dn", "Ping-pong", "Snake", "Spiral", "Pong",
           "Diag up", "Diag dn", "Waves", "Expand", "Contract", "Snake H" }));
 
     columns.push_back (trigCol ("Breathes", kBreathesStart,
@@ -102,7 +102,7 @@ void TriggerMenu::buildModel()
 
     columns.push_back (trigCol ("Wild", kWildStart,
         { "Sparkle", "Strobe", "Alt swap", "Rain", "Lightning", "Static",
-          "Glitch", "Bounce", "Zigzag", "Sparkle few", "Fast ball", "Pong" }));
+          "Glitch", "Bounce", "Zigzag", "Sparkle few", "Fast ball", "Converge" }));
 
     // Multicolor spans two octaves (two columns of self-coloured recipes).
     columns.push_back (trigCol ("Multicolor", kColorDynStart,
