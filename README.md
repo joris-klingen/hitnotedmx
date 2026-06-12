@@ -96,5 +96,19 @@ clips to `~/Music/HitNoteDmx Showcase/` and opens it in Finder for drag-and-drop
 - `Source/EnttecProDmx.{h,cpp}` — the self-contained ENTTEC driver; the send
   loop runs on its own high-priority timer at 40 Hz.
 - `Source/TriggerMenu.{h,cpp}` — the piano-roll menu and live preview.
+- `Source/TriggerVocabulary.{h,cpp}` — single source of truth for the
+  note→name map; the mapping is versioned (`vocab::kMappingVersion`) and each
+  version is frozen as `mappings/v<N>.tsv`, guarded by the `mapping-frozen`
+  CTest (see `mappings/README.md`).
 - The plugin namespace is `hitnotedmx`; JUCE's `createPluginFilter()` entry
   point sits at file scope and forwards in.
+
+## Family
+
+HitNoteDmx is the backbone of the hitdmx family:
+[hitlaunchdmx](https://github.com/joris-klingen/hitlaunchdmx) (standalone
+Launchpad-triggered ambient scenes),
+[hitccdmx](https://github.com/joris-klingen/hitccdmx) (raw CC-style DMX
+channel VST), and
+[hitdesigndmx](https://github.com/joris-klingen/hitdesigndmx) (clip design +
+conversion of legacy lighting clips into this plugin's note vocabulary).

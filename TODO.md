@@ -51,11 +51,28 @@ architecture lives in [STATUS.md](STATUS.md).
    - **Expose density + a new "soft edges (2D)" feather as note options in the
      C8 octave** (120–127), velocity = intensity — playable from MIDI like the
      other layers, alongside the existing automatable density knob.
+   - Consider **speed utilities** in the same top octave (e.g. slow a held
+     breathe down for long swells) — same playable-modifier idea.
    - Confirm the scatter looks right on the physical bars; decide the default.
+
+6. **VU meter at very low levels** — wish: only the *lowest* LED dims when the
+   signal is very low (today the floor is a fixed 2-pixel base with a fast
+   per-beat release). Check the feel on hardware and tune the floor behaviour.
+
+7. **Superior Drummer trigger naming** — mirror the **Init. names** experience
+   for Superior Drummer, so the trigger vocabulary is usable by name when the
+   show is driven from SD3 drum MIDI. Scope (named mapping template vs docs
+   recipe) to be decided.
 
 ## Housekeeping
 
-6. **Re-author pixel zones natively for 18 pixels** — the 9 "zones" are a
+8. **Instrument instead of audio effect?** — the plugin is an audio effect
+   with MIDI input (`IS_MIDI_EFFECT=TRUE` failed to load in Live, see
+   STATUS). Consider whether an instrument (`IS_SYNTH`) shape sits more
+   naturally on MIDI tracks; weigh routing/automation/host-compat trade-offs
+   before changing — the plugin identity would change for existing sessions.
+
+9. **Re-author pixel zones natively for 18 pixels** — the 9 "zones" are a
    fossil of the old 9-pixel rig: each is authored as one zone then stretched
    2× to the physical pixels (`zone()` in `Composition.cpp`), while Even/Odd/
    Thirds are authored natively for 18. Two mental models for grouping pixels
@@ -64,6 +81,17 @@ architecture lives in [STATUS.md](STATUS.md).
 
 ## Recently shipped (see STATUS.md for detail)
 
+- **Mapping v1 frozen + mapping-tool** — the note mapping is versioned
+  (`vocab::kMappingVersion`); each version's note→chainName map is a snapshot
+  in `mappings/v<N>.tsv`, dumped/verified by the `mapping-tool` console app
+  and guarded by the `mapping-frozen` CTest. Freeze procedure in
+  `mappings/README.md`. Clip migration between versions (and legacy
+  RGB-automation import) planned as further subcommands; sibling repo
+  **hitdesigndmx** converts legacy sets against these snapshots.
+- **Visualizer polish** — preview brightness is gamma-lifted (`kVizGamma`) so
+  low DMX levels read as visibly lit, matching the fixtures' own dimming
+  curve; each fixture shows a small `dNNN` start-address caption; editor
+  tightened to 1168×338.
 - **Strobe rework** — moved to the root of the Wild octave (C2 = 48; sparkle/
   sparkle few shifted to 49/50). Flashes **white by default** (rig lit white via
   the white-default path so the driver shutter has something to chop; a colour/
