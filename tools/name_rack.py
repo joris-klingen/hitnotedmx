@@ -71,13 +71,15 @@ def _eval_int(expr: str, consts: dict[str, int]) -> int:
     return int(eval(expr))  # noqa: S307 — input restricted to the regex above
 
 
-def parse_palette_names(palette_h: Path) -> list[str]:
-    """Pull the 24 colour names from the `kPalette` table trailing comments.
+def parse_palette_names(palette_h: Path, marker: str) -> list[str]:
+    """Pull the colour names from a palette table's trailing comments.
 
+    `marker` is the array opener, e.g. "kPalette {{" or "kSecondaryPalette {{".
     Each row looks like:  `{ 1.000f, 0.000f, 0.000f },  //  1  Red`
     """
     text = palette_h.read_text()
-    body = text[text.index("kPalette {{") :]  # the table, past the constants
+    start = text.index(marker)
+    body = text[start : start + text[start:].index("}}")]  # just this table
     names: list[str] = []
     for m in re.finditer(r"//[ \t]*\d+[ \t]+([^\n]+)", body):  # one row, one line
         name = m.group(1).strip()
@@ -90,7 +92,7 @@ def parse_palette_names(palette_h: Path) -> list[str]:
 # Short 2-letter prefix per group, so the named chains cluster and read
 # clearly in Ableton (e.g. "cp Red" vs "cs Red" vs "mc Rainbow").
 COLUMN_PREFIX = {
-    "Pixel zones": "pz",
+    "Zones": "pz",
     "Chases": "ch",
     "Breathes": "br",
     "Wild": "wd",
@@ -146,15 +148,17 @@ def build_note_names() -> dict[int, str]:
     names = parse_label_columns(SRC / "TriggerMenu.cpp", consts)
 
     # Palette columns: colour names, prefixed "cp" (primary) / "cs" (secondary)
-    # so the two octaves stay distinguishable and cluster in Ableton's list.
-    palette = parse_palette_names(SRC / "Palette.h")
+    # so the two clusters stay distinguishable in Ableton's list. The two
+    # palettes are separate tables (the secondary is its own accent set).
+    primary = parse_palette_names(SRC / "Palette.h", "kPalette {{")
+    secondary = parse_palette_names(SRC / "Palette.h", "kSecondaryPalette {{")
     prim = consts["kPrimaryPaletteStart"]
     sec = consts["kSecondaryPaletteStart"]
     sec_size = consts.get("kSecondaryPaletteSize", 12)
-    for o in range(len(palette)):  # primary spans all 24 colours
-        names[prim + o] = f"cp {palette[o]}"
-    for o in range(min(sec_size, len(palette))):
-        names[sec + o] = f"cs {palette[o]}"
+    for o in range(len(primary)):  # primary spans all 24 colours
+        names[prim + o] = f"cp {primary[o]}"
+    for o in range(min(sec_size, len(secondary))):
+        names[sec + o] = f"cs {secondary[o]}"
 
     return names
 
@@ -165,6 +169,10 @@ def build_note_names() -> dict[int, str]:
 BRANCH_RE = re.compile(r"<MidiEffectBranchPreset\b.*?</MidiEffectBranchPreset>", re.DOTALL)
 NAME_RE = re.compile(r'(<Name Value=")(.*?)("\s*/>)')
 KEYMIN_RE = re.compile(r"<KeyRange>\s*<Min Value=\"(\d+)\"")
+
+# Unused notes get a hyphen rather than an empty name — Ableton renders an
+# empty chain name as its default "Chain" label, so a "-" reads as "unused".
+UNUSED_NAME = "-"
 
 
 def patch_xml(xml: str, names: dict[int, str]) -> tuple[str, list[tuple[int, str]]]:
@@ -177,7 +185,7 @@ def patch_xml(xml: str, names: dict[int, str]) -> tuple[str, list[tuple[int, str
         if not km:
             return block
         note = int(km.group(1))
-        label = names.get(note, "")
+        label = names.get(note, UNUSED_NAME)
         applied.append((note, label))
 
         def set_name(nm: re.Match) -> str:
@@ -205,10 +213,10 @@ def main() -> int:
     patched, applied = patch_xml(xml, names)
 
     applied.sort()
-    named = [(n, l) for n, l in applied if l]
-    print(f"{len(applied)} chains, {len(named)} named, {len(applied) - len(named)} left blank:\n")
+    named = [(n, l) for n, l in applied if l and l != UNUSED_NAME]
+    print(f"{len(applied)} chains, {len(named)} named, {len(applied) - len(named)} unused:\n")
     for note, label in applied:
-        print(f"  note {note:>3}  {label or '·'}")
+        print(f"  note {note:>3}  {label if label != UNUSED_NAME else '·'}")
 
     if args.dry_run:
         print("\n(dry run — nothing written)")

@@ -180,7 +180,7 @@ ColorPick pickColor (const MidiState& state,
     if (mostRecentPitch < 0)
         return { 0.0f, 0.0f, 0.0f, 0.0f, -1, 0 };
 
-    const auto& c = kPalette[mostRecentPitch - paletteStart];
+    const auto c = paletteColorFor (paletteStart, mostRecentPitch - paletteStart);
     const float intensity = static_cast<float> (mostRecentVel) / 127.0f;
     return { c.r, c.g, c.b, intensity, mostRecentPitch, mostRecentVel };
 }

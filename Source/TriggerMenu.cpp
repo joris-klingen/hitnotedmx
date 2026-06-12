@@ -39,9 +39,9 @@ juce::String noteName (int pitch)
     return juce::String (kNoteLetters[pitch % 12]) + juce::String (octave).removeCharacters ("-");
 }
 
-juce::Colour paletteColour (int index)
+juce::Colour paletteColour (int paletteStart, int offset)
 {
-    const auto& c = kPalette[index];
+    const auto c = paletteColorFor (paletteStart, offset);
     return juce::Colour::fromFloatRGBA (c.r, c.g, c.b, 1.0f);
 }
 }  // namespace
@@ -77,9 +77,14 @@ void TriggerMenu::buildModel()
         c.group   = std::move (group);
         c.octave  = octaveStart / 12 - 2;
         c.palette = true;
+        // Secondary notes pull from their own complementary table; primaries
+        // from the 24-colour table (offset = paletteBase + row).
+        const int palStart = octaveStart >= kSecondaryPaletteStart ? kSecondaryPaletteStart
+                                                                   : kPrimaryPaletteStart;
         for (int o = 0; o < kNumRows; ++o)
             c.cells[static_cast<size_t> (o)] =
-                { octaveStart + o, noteName (octaveStart + o), paletteColour (paletteBase + o), true, true };
+                { octaveStart + o, noteName (octaveStart + o),
+                  paletteColour (palStart, paletteBase + o), true, true };
         return c;
     };
 
@@ -88,7 +93,7 @@ void TriggerMenu::buildModel()
         { "Blackout", "Spot L WW", "Spot L col", "Spot R WW", "Spot R col",
           "Bar 1", "Bar 2", "Bar 3", "Bar 4" }));
 
-    columns.push_back (trigCol ("Pixel zones", kPixelStaticStart,
+    columns.push_back (trigCol ("Zones", kPixelStaticStart,
         { "Zone 1", "Zone 2", "Zone 3", "Zone 4", "Zone 5", "Zone 6",
           "Zone 7", "Zone 8", "Zone 9", "Even", "Odd", "Thirds" }));
 
@@ -251,24 +256,33 @@ void TriggerMenu::paint (juce::Graphics& g)
         c = c2 + 1;
     }
 
-    for (int c = 0; c < nCols; ++c)
+    // Category names — a single header spans consecutive non-palette columns
+    // that share a title (so the two Multicolor octaves get ONE header, not a
+    // repeat). Palette groups (PRIM / SEC) are drawn above.
+    for (int c = 0; c < nCols; )
     {
         const auto& col = columns[static_cast<size_t> (c)];
+        if (col.palette) { ++c; continue; }
+        int c2 = c;
+        while (c2 + 1 < nCols && ! columns[static_cast<size_t> (c2 + 1)].palette
+               && columns[static_cast<size_t> (c2 + 1)].title == col.title) ++c2;
+        const int x0 = colX[static_cast<size_t> (c)];
+        const int x1 = colX[static_cast<size_t> (c2)] + colWid[static_cast<size_t> (c2)];
+        g.setColour (juce::Colours::white);
+        g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
+        g.drawFittedText (col.title.toUpperCase(), x0 + 1, 1, x1 - x0 - 2, titleH - 2,
+                          juce::Justification::centred, 2);
+        c = c2 + 1;
+    }
+
+    // Octave number band — per column, the column's octave (no "C" prefix).
+    for (int c = 0; c < nCols; ++c)
+    {
         const int x  = colX[static_cast<size_t> (c)];
         const int cw = colWid[static_cast<size_t> (c)];
-
-        if (! col.palette)   // category name (palette groups drawn above)
-        {
-            g.setColour (juce::Colours::white);
-            g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
-            g.drawFittedText (col.title.toUpperCase(), x + 1, 1, cw - 2, titleH - 2,
-                              juce::Justification::centred, 2);
-        }
-
-        // Octave number band — the column's octave, no "C" prefix.
         g.setColour (juce::Colour (0xffb0b0b0));
         g.setFont (juce::FontOptions (9.0f, juce::Font::bold));
-        g.drawText (juce::String (col.octave), x, titleH, cw, kOctaveH,
+        g.drawText (juce::String (columns[static_cast<size_t> (c)].octave), x, titleH, cw, kOctaveH,
                     juce::Justification::centred);
     }
 
