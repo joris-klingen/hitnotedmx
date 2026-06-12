@@ -13,10 +13,18 @@ regrouped + experimental pixel-density control → density diagonal-bias fix
 (per-bar rank hash) + extended recipe bank + self-coloured Multicolor bank
 (new `DynamicColorFn` routing) → flat-and-wide editor redesign + octave-
 aligned MIDI remap (every section starts on a C; recipes grouped by feel
-into one-octave banks; palettes relocated to C4/C6; blackout trigger note
-dropped) → **transposed piano-roll trigger grid + DmxVisualizer with spots
-flanking the bars + pink title strip** (1440×360). A Standalone build ships
-alongside VST3.
+into one-octave banks; palettes relocated to C5/C7; blackout trigger note
+dropped) → transposed piano-roll trigger grid + DmxVisualizer with spots
+flanking the bars + pink title strip → **full 48-recipe matrix + per-bank
+velocity semantics** (Chases→tail, Wild→beat-division, Breathes→density
+islands, Multicolor→speed; VU meter beat-locked with velocity→gain) →
+white-default for recipes held without a palette colour → **Showcase assets**
+(embedded named Ableton rack + runtime demo clips, via Init-names / Show-clips
+buttons) → recipe reorder + `.adg` name prefixes (cp/cs/bk/sp/ba/pz/ch/br/wd/mc)
+→ **strobe rework** (moved to C2 root, white by default, single-frame flash,
+velocity → 1–20 Hz repeat rate). Window is now 1296×360. A Standalone build
+ships alongside VST3 — **build both targets** (`cmake --build build`) so the
+DAW plugin never goes stale.
 
 ## What this repo is
 
@@ -41,18 +49,18 @@ ENTTEC USB Pro hardware with the 228-channel rig lit (smoke test passed).
 |-------|---------|-------|
 | VST plumbing | `PluginProcessor.{h,cpp}`, `CMakeLists.txt` | Standard audio-effect shape (stereo I/O + MIDI input). `IS_MIDI_EFFECT=TRUE` did not load in Live, so we use the audio-effect shape. |
 | Rig | `Rig.h` | `constexpr` 4-bar × 18-pixel + 2-spot layout (228 channels: bars DMX 1–216, spots 217/223). |
-| Palette | `Palette.h` | 24-colour table, indexed by `pitch - paletteStart`. Each palette spans two octaves starting on a C: primary 72–95 (C4–B5), secondary 96–119 (C6–B7). No blackout note — `kSecondaryPaletteEnd` (120) bounds the range. |
+| Palette | `Palette.h` | 24-colour table, indexed by `pitch - paletteStart`. Primary spans two octaves 84–107 (C5–B6, all 24 colours); secondary is one octave 108–119 (C7, the first 12). `kSecondaryPaletteEnd` (120) bounds the range. |
 | Held-note tracker | `MidiState.{h,cpp}` | 128-slot array indexed by pitch. O(1) noteOn/noteOff/clear, no allocations. |
-| Dynamic recipes | `Recipes.{h,cpp}` | Four feel-groups, each one MIDI octave starting on a C, all function-pointer dispatch (one table per group). **Chases C0 (24–34):** chase_up/down, ping_pong, snake, sweep_up/down, diag_up/down, wave_train, expand, contract. **Breathes C1 (36–42):** sine_wave, breathe, ripple, halo, moon_rise, soft_ball, aurora. **Wild C2 (48–51):** sparkle, strobe (null slot — driver-level shutter), alt_swap, rain. **Multicolor C3 (60–64):** self-coloured `DynamicColorFn` recipes returning RGB directly (rainbow_chase, comet, vu_meter, fire, desert_breathe). `DynamicFn` carries a `tail` arg (0..1); moving-head chases render a velocity-driven comet trail via `cometBrightness` (integer tracks) / `cometBrightnessF` (continuous tracks, e.g. diagonals). Dropped in the remap: sweep_left/right + bar_chase (use the Bar selectors), kick_pulse, tide. |
-| Composition | `Composition.{h,cpp}` | Bit-mask lookup tables, mask intersection across utility / static / dynamic layers, primary/secondary palette routing, spot RGBW with warm-white tint. Plus master-dim scaling and velocity-driven linear colour fade (`ColorFadeState`, see below). **Colour routing comes from the bar/zone selectors (their velocity picks primary vs secondary); brightness dynamics modulate brightness only and do not route colour** — so a chase takes the selector's colour, or primary by default. Velocity on a dynamic note instead sets its tail length. **Self-coloured recipes (100–104) are the exception:** when held, their RGB replaces the palette route for the lit pixels (multiple combine per-channel max); structural masks and brightness dynamics still gate/modulate on top, and the colour-fade stage doesn't apply to them. |
+| Dynamic recipes | `Recipes.{h,cpp}` | Four feel-groups, each a full chromatic octave starting on a C, all function-pointer dispatch (one table per group), 48 recipes total. Each table is ordered logically and matches the menu columns 1:1. **Chases C0 (24–35):** chase up/down, ping-pong, diag up/down, snake, snake H, spiral, waves, expand, contract, pong. **Breathes C1 (36–47):** breathe, sine, ripple, ripple H, bloom, halo, moon rise, soft ball, drift, aurora, shimmer, sway. **Wild C2 (48–59):** strobe (root C, null slot — driver-level shutter), sparkle, sparkle few, lightning, glitch, static, rain, alt swap, bounce, fast ball, zigzag, converge. **Multicolor C3–C4 (60–83, two octaves, 24):** self-coloured `DynamicColorFn` recipes returning RGB directly — rainbow, comet, VU meter, VU smooth, fire, embers, magma, lava, heatmap, ocean, forest, desert (C3); sunset, twilight, borealis, night sky, galaxy, nebula, storm, plasma, police, disco, blocks, candy (C4). `DynamicFn` carries a `tail` arg (0..1); `DynamicColorFn` carries a `param` arg (VU gain). Moving-head chases render a velocity-driven comet trail via `cometBrightness` / `cometBrightnessF`. |
+| Composition | `Composition.{h,cpp}` | Bit-mask lookup tables, mask intersection across utility / static / dynamic layers, primary/secondary palette routing, spot RGBW with warm-white tint. Plus master-dim scaling and velocity-driven linear colour fade (`ColorFadeState`, see below). **Colour routing comes from the bar/zone selectors (their velocity picks primary vs secondary); brightness dynamics modulate brightness only and do not route colour** — so a chase takes the selector's colour, or primary by default. **Per-bank velocity semantics** (doc table at the top of the file): Chases → comet tail, Wild → beat-division 1/16..1/1 (except sparkle/sparkle few, free-running speed), Breathes → density "islands" + half-speed (except ripple), Multicolor → animation speed (except VU meter, beat-locked with velocity → gain). **White default:** a bar/pixel/dynamic/strobe trigger held with NO palette colour renders full white (matching click-preview). **Self-coloured Multicolor recipes (60–83) are the exception to colour routing:** when held, their RGB replaces the palette route for the lit pixels (multiple combine per-channel max); structural masks and brightness dynamics still gate/modulate on top, and the colour-fade stage doesn't apply to them. |
 | Master dims + density | `PluginProcessor.{h,cpp}`, `Composition.cpp` | Three automatable params — LED Master Dim + Spot Master Dim + **Pixel Density** (0..1, shown as %). Dims scale RGB / spot dimmer; density is the dark-room thinning control: below 100% it blanks a fixed subset of bar pixels so fewer LEDs light without flicker and the survivors keep full brightness (gates on/off, never dims). The gate order comes from `kDensityRank` — an avalanche hash (murmur3 finalizer) of grid position, rank-normalised within each bar, so the drop order is random but every bar keeps the same lit fraction (the original single-multiply linear hash dropped pixels in diagonal stripes). All three applied inside `computeDmx` so the on-screen preview reflects them; MIDI-mappable in the host. |
 | Colour fade | `Composition.{h,cpp}` | Each palette's displayed colour ramps linearly toward the winning note. Fade duration from the note's velocity (hard = instant, soft = up to 3 s) → a soft "black" palette note is a slow fade-to-black. State persists across blocks; advanced by wall-clock dt so it runs even when transport is stopped. |
 | Audio-thread → GUI MIDI log | `MidiLog.{h,cpp}` | Lock-free SPSC ring (256 entries). |
 | processBlock wiring | `PluginProcessor.cpp` | Pulls PPQ + BPM from `AudioPlayHead`, stamps MIDI events to beat time, runs `computeDmx()` once per block (with master-dim values + colour-fade state + block dt), pushes 228 channels via `dmx.setChannel()`. When the host transport isn't playing it advances a free-running beat clock so recipes still animate (standalone / transport-stopped preview). |
-| Editor | `PluginEditor.{h,cpp}` | Flat-and-wide three-pane layout (1440×360) — left (240px): master-dim knobs (custom rotary look) + a compact MIDI log + Connect/Disconnect/Blackout + one-line ENTTEC status; middle: the *Flamingo Hitmix Lightshow* title strip (soft pink) above the visualiser; right (720px): the piano-roll trigger grid (no card title). Panes carry no header text — the cards are bare panels. 15 Hz GUI timer drains the MIDI log and mirrors the driver's strobe state onto the visualiser. Also builds as a Standalone app for DAW-free testing. |
-| Trigger menu | `TriggerMenu.{h,cpp}` | **Transposed piano-roll grid** — each vocabulary section is a COLUMN (its name is the header); the 12 rows are the chromatic notes of that section's octave, **C at the bottom → B at the top**, with black-key rows shaded and a note-letter gutter on the left, so the menu lines up vertically with Ableton's piano roll. Ten columns: Spots & bars (one octave: spots 0–3, bars 4–7), Pixel zones (9 zones + Even/Odd), Chases, Breathes, Wild, Multicolor, then the palettes split low/high (Prim C4, Prim C5, Sec C6, Sec C7) so each is a full 12-row octave of swatches. Notes with no trigger render as empty slots. Cells toggle and combine; the latched set is injected into `MidiState` via lock-free atomics (`setPreviewPitches`/`applyPreview`) and previewed live. Latching a Multicolor cell counts as having a colour (no default white injected). No blackout cell — the Controls Blackout button + master-dim knobs cover that. |
-| On-screen DMX preview | `DmxVisualizer.{h,cpp}` | A spot circle flanks each side of the 4 vertical bars × 18 cells (spot_l left, spot_r right, top-aligned with the bars); cells are ~2:1 and unlabelled. Pre-rendered into a single `juce::Image`, blitted by `paint()`. Re-rasterised only when the rig footprint's 8-bit fingerprint changes. Owns a dedicated strobe-flash timer (runs only while the strobe note is held) that blanks the rig to the panel background on alternate ticks at the strobe rate — preview only, not phase-locked to the real output. |
-| ENTTEC driver | `EnttecProDmx.{h,cpp}` | Self-contained ENTTEC DMX USB Pro driver (IOKit discovery + POSIX termios I/O). Best-effort widget handshake, raised read timeout, 700-byte RX. Send loop runs on a `juce::HighResolutionTimer` (its own thread, off the message thread) at 40 Hz for steady frame emission. Hosts the **strobe shutter**: `setStrobeHz()` gates whole frames lit/black on the emitted-frame counter, so the strobe is exactly synced to the DMX output clock and free of audio-block jitter (10 Hz = 2-on/2-off; 20 Hz max). |
+| Editor | `PluginEditor.{h,cpp}` | Flat-and-wide layout (1296×360) — left pane: master-dim knobs (custom rotary look) + a compact MIDI log + two paired-button rows (Connect USB / Blackout, then **Init. names** / **Show clips**) + one-line ENTTEC status; middle: the *Flamingo Hitmix Lightshow* title strip (soft pink) above the visualiser; a narrow far-right pane holds a **click-velocity slider** (sets the velocity of clicked/previewed triggers, live) above a drag placeholder; the piano-roll trigger grid fills the rest. 15 Hz GUI timer drains the MIDI log, pushes live note state to the menu, and mirrors the driver's strobe state onto the visualiser. Also builds as a Standalone app for DAW-free testing. |
+| Trigger menu | `TriggerMenu.{h,cpp}` | **Transposed piano-roll grid** — each vocabulary section is a COLUMN (its name is the header); the 12 rows are the chromatic notes of that section's octave, **C at the bottom → B at the top**, with black-key rows shaded and a note-letter gutter on the left, so the menu lines up vertically with Ableton's piano roll. Columns: Spots & bars (one octave: blackout C-2, spots, bars), Pixel zones (9 zones + Even/Odd/Thirds), Chases, Breathes, Wild, Multicolor (two octaves), then the palettes split low/high (Prim C5/C6, Sec C7) so each is a full 12-row octave of swatches. Notes with no trigger render as empty slots. Cells toggle and combine; the latched set is injected into `MidiState` via lock-free atomics (`setPreviewPitches`/`applyPreview`) at the click-velocity, and previewed live. Tiles light up while their note sounds (`setLiveNotes`). Latching a Multicolor cell counts as having a colour. No blackout cell beyond the C-2 trigger — the Controls Blackout button + master-dim knobs also cover that. |
+| On-screen DMX preview | `DmxVisualizer.{h,cpp}` | A spot circle flanks each side of the 4 vertical bars × 18 cells (spot_l left, spot_r right, top-aligned with the bars); cells are ~2:1 and unlabelled. Pre-rendered into a single `juce::Image`, blitted by `paint()`. Re-rasterised only when the rig footprint's 8-bit fingerprint changes. `setStrobe(hz)` runs a dedicated timer at the send rate that mirrors the driver's one-frame-lit / rest-black flash at the velocity-driven repeat rate — preview only, not phase-locked to the real output. |
+| ENTTEC driver | `EnttecProDmx.{h,cpp}` | Self-contained ENTTEC DMX USB Pro driver (IOKit discovery + POSIX termios I/O). Best-effort widget handshake, raised read timeout, 700-byte RX. Send loop runs on a `juce::HighResolutionTimer` (its own thread, off the message thread) at 40 Hz for steady frame emission. Hosts the **strobe shutter**: `setStrobeHz()` lights exactly one emitted frame per period and blacks the rest, on the emitted-frame counter, so the strobe is exactly synced to the DMX output clock and free of audio-block jitter. `hz` is the repeat rate — the flash stays one send tick (shortest), only the black gap grows (1 Hz = 1-lit/39-black … 20 Hz = 1-lit/1-black = max). The processor maps the held note's velocity to that rate. |
 
 ## How it runs end-to-end
 
@@ -114,25 +122,27 @@ host MIDI in ─► processBlock ─► MidiState.noteOn/Off
    matches the on-screen preview. The send loop now runs on a
    `HighResolutionTimer` at 40 Hz.
 
-5. **Strobe is a driver-level shutter (new).** Rather than a per-pixel
-   recipe sampled at the audio block rate (which beat against the 40 Hz
-   send and jittered), the strobe gates whole frames lit/black on the
-   driver's emitted-frame counter — exactly synced to output, perfectly
-   even duty, decoupled from audio. The processor only publishes "strobe
-   held" (`setStrobeHz`); the menu still lists it in the dynamics block.
-   `kStrobeHz` (Recipes.h) defaults to 10 Hz; 20 Hz is the hardware max.
-   The on-screen flash is a separate GUI timer and is not phase-locked.
+5. **Strobe is a driver-level shutter (reworked).** Rather than a
+   per-pixel recipe sampled at the audio block rate (which beat against
+   the 40 Hz send and jittered), the strobe lights one emitted frame per
+   period and blacks the rest, on the driver's emitted-frame counter —
+   exactly synced to output, decoupled from audio. It now sits on the
+   **root of the Wild octave (C2 = 48)**, flashes **white by default**
+   (the processor lights the rig white via the white-default path so the
+   shutter has something to chop; a colour/recipe held alongside shows
+   through), and **velocity sets the repeat rate** from `kStrobeMinHz`
+   (1 Hz) to `kStrobeMaxHz` (20 Hz, hardware max). The on-screen flash is
+   a separate GUI timer mirroring the same pattern, not phase-locked.
 
-6. **Recipe vocabulary expanded + octave-grouped (was: starter set).**
-   26 recipes across four feel-groups, each one MIDI octave starting on a
-   C: Chases (C0), Breathes (C1), Wild (C2), Multicolor (C3). Multicolor
-   recipes are self-coloured (`DynamicColorFn` returns RGB and overrides
-   the palette route). Verified numerically (range, liveness, motion
-   direction via ASCII frame renders) and dispatch-mapped by unit test,
-   but the new recipes aren't yet judged on hardware — tuning constants
-   live at the top of each recipe in `Recipes.cpp`. Five starter recipes
-   were dropped in the remap (sweep_left/right + bar_chase, now done with
-   Bar selectors; kick_pulse; tide).
+6. **Recipe vocabulary — full 48-recipe matrix.** Four feel-groups, each a
+   complete chromatic octave starting on a C: Chases (C0, 12), Breathes
+   (C1, 12), Wild (C2, 12), Multicolor (C3–C4, 24). Multicolor recipes are
+   self-coloured (`DynamicColorFn` returns RGB and overrides the palette
+   route). Tables are ordered logically and match the menu columns 1:1.
+   Verified numerically (range, liveness, motion via ASCII frame renders)
+   and dispatch-mapped by unit test; tuning constants live at the top of
+   each recipe in `Recipes.cpp`. Still wants a full eyeball on real
+   hardware (TODO #4).
 
 7. **Transport-stopped animation (resolved).** When the host transport
    isn't playing, `processBlock` advances a free-running beat clock
@@ -159,21 +169,28 @@ Open backlog is tracked in [TODO.md](TODO.md); the strategic shape:
   optional OpenGL context only if software-compositor cost ever returns.
 
 *Done:* trigger menu + live preview, free-running preview clock, colour
-fade, master dims, 3-pane redesign, spots above the grid, 18 px/bar rig,
-vocabulary simplification (bars + pixel zones), 4-column menu, real-hardware
-DMX smoke test, frame-synced strobe shutter, velocity-controllable chase
-tails (with dynamics decoupled from colour routing), trigger-menu dynamics
-regrouped (Chases / Breathes / Wild), pixel-density control (diagonal bias
-fixed via per-bar rank hash), extended recipe bank 85–99, Multicolor bank
-100–104 with `DynamicColorFn` colour routing, dead colour-pitch helpers
-removed.
+fade, master dims, spots above the grid, 18 px/bar rig, vocabulary
+simplification (bars + pixel zones), real-hardware DMX smoke test,
+velocity-controllable chase tails (with dynamics decoupled from colour
+routing), pixel-density control (diagonal bias fixed via per-bar rank hash),
+piano-roll editor redesign + octave-aligned MIDI remap, **full 48-recipe
+matrix**, **per-bank velocity semantics** (tail / beat-division / density /
+speed; VU meter beat-locked velocity→gain), **white default** for
+palette-less holds, **Showcase assets** (embedded named rack + runtime demo
+clips via Init-names / Show-clips), recipe reorder + `.adg` name prefixes,
+**strobe rework** (C2 root, white default, single-frame flash, velocity →
+1–20 Hz repeat rate), live-MIDI tile highlight, click-velocity slider.
 
 ## How to verify after a fresh checkout
 
 ```bash
 cmake -S . -B build -G Xcode
-cmake --build build --config Release
+cmake --build build --config Release   # builds BOTH the VST3 and the Standalone
 ```
+
+Always build both targets (the bare `cmake --build build` does) — building
+only one leaves the other stale, so the DAW plugin can diverge from the
+Standalone.
 
 VST3 lands at `build/HitNoteDmx_artefacts/Release/VST3/HitNoteDmx.vst3`
 and is also installed to `~/Library/Audio/Plug-Ins/VST3/HitNoteDmx.vst3`.

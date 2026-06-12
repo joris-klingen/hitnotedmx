@@ -22,8 +22,9 @@ without a DAW at all.
   tiles also light up when their note is actually playing.
 - **Velocity is expressive.** Depending on the layer, a note's velocity sets
   the colour route (hard = primary, soft = secondary accent), the comet-tail
-  length of a chase, the animation speed of a colour effect, or a palette's
-  brightness and fade time.
+  length of a chase, the beat-division or animation speed of an effect, the
+  density of a breathe, a VU meter's gain, the strobe's repeat rate, or a
+  palette's brightness and fade time.
 - **Live preview + master controls.** An on-screen rig visualiser mirrors the
   output; LED-dim, Spot-dim and Pixel-Density knobs (all host-automatable /
   MIDI-mappable) ride the whole rig.
@@ -44,15 +45,17 @@ keyboard (C3 = MIDI 60, Ableton convention):
 | C-1 | 12–23 | **Pixel zones** — 9 zones + Even / Odd / Thirds combs |
 | C0 | 24–35 | **Chases** — chase, ping-pong, snake(s), sweeps, diagonals, waves, expand/contract |
 | C1 | 36–47 | **Breathes** — sine, ripple(s), halo, moon rise, soft ball, aurora, bloom, shimmer, sway, drift |
-| C2 | 48–59 | **Wild** — sparkle, strobe, rain, lightning, glitch, bounce, zigzag, pong … |
-| C3–C4 | 60–83 | **Multicolor** — self-coloured effects: rainbow, comet, VU, fire, night sky, skyline, plasma, ocean, nebula, lava, galaxy … |
+| C2 | 48–59 | **Wild** — strobe (on the root C), sparkle(s), lightning, glitch, static, rain, bounce, fast ball, zigzag, converge … |
+| C3–C4 | 60–83 | **Multicolor** — self-coloured effects: rainbow, comet, VU, fire, magma, ocean, forest, borealis, night sky, galaxy, plasma, police, disco … |
 | C5–C6 | 84–107 | **Primary palette** — 24 colours |
 | C7 | 108–119 | **Secondary palette** — accent colours |
 
 Recipes are pure functions of beat-time, bar and pixel, so they stay locked to
 the song's tempo (and keep animating on a free-running clock when the transport
-is stopped). Strobe is a frame-synced shutter in the driver itself, so it never
-beats against the audio block rate.
+is stopped). Strobe sits on the root of the Wild octave (C2): it's a
+frame-synced shutter in the driver itself — one lit frame per period, so it
+never beats against the audio block rate — flashing white by default, with
+velocity setting the repeat rate from 1 Hz up to the 20 Hz hardware max.
 
 ## Building
 
@@ -76,6 +79,12 @@ is also copied to `~/Library/Audio/Plug-Ins/VST3/`. The Standalone app is at
    was found.
 3. Click tiles in the trigger menu to audition the vocabulary, or play / draw
    MIDI notes from the octave map above. The visualiser mirrors the rig.
+
+To set up your DAW for naming and demo content, the left pane has two
+buttons: **Init. names** installs a named MIDI Effect Rack
+(`Hitnotenames.adg`) into your Ableton User Library so the piano roll shows
+every trigger's name, and **Show clips** writes a set of layered demo MIDI
+clips to `~/Music/HitNoteDmx Showcase/` and opens it in Finder for drag-and-drop.
 
 ## Under the hood
 

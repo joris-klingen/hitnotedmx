@@ -18,12 +18,14 @@ architecture lives in [STATUS.md](STATUS.md).
    unplug/replug hardware testing, which is the bulk of it. One file, no
    architectural change.
 
-2. **Polish the showcase content** — the "Showcase" button now ships a named
-   trigger rack (embedded) + ~87 runtime-generated demo clips (one per trigger
-   + a Combos folder) to `~/Music/HitNoteDmx Showcase`. Follow-ups: add a few
-   longer layered "song section" clips; palette-routing demos (primary vs
+2. **Polish the showcase content** — **Init. names** installs the embedded
+   named trigger rack into the Ableton User Library; **Show clips** writes a
+   set of layered demo combo clips (static looks + within-the-bar movers) to
+   `~/Music/HitNoteDmx Showcase/Combos/` and opens it in Finder. Follow-ups:
+   add a few longer "song section" clips; palette-routing demos (primary vs
    soft-velocity secondary); per-recipe velocity variants (e.g. a Breathe at
-   low velocity to show the islands). Tune clip count/length once auditioned.
+   low velocity to show the islands, a strobe velocity sweep). Tune clip
+   count/length once auditioned.
 
 3. **Drag a MIDI clip from the plugin into the DAW** — once a selection is
    built by clicking tiles in the trigger menu, let the user drag that latched
@@ -35,10 +37,10 @@ architecture lives in [STATUS.md](STATUS.md).
 4. **Visually tune the recipe banks** — all four feel-group octaves are now
    full (48 recipes), implemented against numeric checks and ASCII-frame
    renders, not yet judged on real hardware. The newest fills (Wild:
-   lightning/glitch/bounce/zigzag/…; Multicolor: night sky, skyline, embers,
-   plasma, ocean, nebula, smooth VU) especially want an eyeball. Speeds,
-   band widths, gaussian radii and hue ramps are all single-constant tweaks
-   in `Recipes.cpp`.
+   lightning/glitch/bounce/zigzag/converge/…; Multicolor: borealis, night sky,
+   galaxy, nebula, plasma, police, disco, blocks, VU smooth) especially want
+   an eyeball. Speeds, band widths, gaussian radii and hue ramps are all
+   single-constant tweaks in `Recipes.cpp`.
 
 5. **Pixel-density: re-roll, taste check, and C8 note controls** — the density
    gate drops pixels in a per-bar-even random order (avalanche hash, rank-
@@ -62,12 +64,28 @@ architecture lives in [STATUS.md](STATUS.md).
 
 ## Recently shipped (see STATUS.md for detail)
 
-- **Showcase assets** — a "Showcase" button (far-right pane) extracts a named
-  trigger rack (`Hitnotenames.adg`, embedded via `juce_add_binary_data`) plus
-  ~87 demo MIDI clips to `~/Music/HitNoteDmx Showcase/` and opens it in Finder.
-  Clips are generated at runtime (`Source/Showcase.cpp`) from the live trigger
-  vocabulary (via `TriggerMenu::triggerTiles`), so they never drift; extraction
-  is idempotent. The rack is named by `tools/name_rack.py` (parses the source).
+- **Strobe rework** — moved to the root of the Wild octave (C2 = 48; sparkle/
+  sparkle few shifted to 49/50). Flashes **white by default** (rig lit white via
+  the white-default path so the driver shutter has something to chop; a colour/
+  recipe held alongside shows through). The shutter now lights one emitted frame
+  per period (shortest flash) instead of a 50% duty; **velocity sets the repeat
+  rate 1–20 Hz** so only the black gap grows. Visualizer mirrors the pattern.
+- **Showcase assets** — two left-pane buttons: **Init. names** installs the
+  embedded named trigger rack (`Hitnotenames.adg`, via `juce_add_binary_data`)
+  into the Ableton User Library; **Show clips** writes layered demo *combo*
+  clips to `~/Music/HitNoteDmx Showcase/Combos/` and opens it in Finder. Clips
+  are generated at runtime (`Source/Showcase.cpp`) from the bank/palette
+  constants, idempotent. The rack is named by `tools/name_rack.py` (parses the
+  source), with group prefixes (cp/cs/bk/sp/ba/pz/ch/br/wd/mc); `installRack()`
+  always overwrites so re-clicking refreshes stale names.
+- **Recipe reorder + per-bank velocity + VU meter** — all four dispatch tables
+  reordered into a logical grouping (matching the menu 1:1). Velocity means a
+  different thing per bank: Chases → tail, Wild → beat-division (sparkle(s) stay
+  free-running), Breathes → density islands + half-speed (not ripple),
+  Multicolor → speed. **VU meter** is beat-locked with velocity → gain, a fast
+  per-beat release to a 2-pixel floor, and headroom so a 127 hit pins the top
+  red pixel. **White default:** a palette-less bar/pixel/dynamic/strobe hold
+  renders full white.
 - **Velocity semantics documented** — a single table atop `Composition.cpp`
   maps the four meanings of velocity (route / tail / speed / intensity+fade).
 - **Live-MIDI tile highlight** — trigger-menu tiles light up while their note
@@ -76,24 +94,25 @@ architecture lives in [STATUS.md](STATUS.md).
   live activity display.
 - **Full matrix** — every dynamics octave is now a complete chromatic set of
   12: Chases (+Snake H), Breathes (+Ripple H, Bloom, Shimmer, Sway, Drift),
-  Wild (+Lightning, Stutter, Static, Glitch, Bounce, Strobe R, Beat,
-  Zigzag), Multicolor (+VU smooth, Night sky, Skyline, Embers, Plasma,
-  Ocean, Nebula). Pixel zones gained a **Thirds** comb (pixels 1,4,7,…).
-  Blackout reintroduced over MIDI at C-2. All 48 recipes verified in range +
-  alive + colourful by unit test.
+  Wild (Strobe on the root, +Sparkle few, Lightning, Static, Glitch, Bounce,
+  Fast ball, Zigzag, Converge), Multicolor expanded to two octaves / 24 (VU
+  smooth, magma, lava, heatmap, forest, sunset, twilight, borealis, night sky,
+  galaxy, nebula, storm, plasma, police, disco, blocks, candy). Pixel zones
+  gained a **Thirds** comb (pixels 1,4,7,…). Blackout reintroduced over MIDI at
+  C-2. All 48 recipes verified in range + alive + colourful by unit test.
 - **Piano-roll editor redesign + octave-aligned MIDI remap** — window is
-  now a flat 1160×360. The right pane is a **transposed piano-roll grid**:
+  now a flat 1296×360. The trigger pane is a **transposed piano-roll grid**:
   each vocabulary section is a column (name on top), 12 rows per octave
   with C at the bottom → B at the top, black-key shading + a note-letter
-  gutter, so it lines up with Ableton's piano roll. Ten columns: Spots &
-  bars, Pixel zones (9 zones + Even/Odd), Chases, Breathes, Wild,
-  Multicolor, and the palettes split low/high (Prim C4/C5, Sec C6/C7).
-  Every section starts on a C: Spots & Bars C-2 (all-bars dropped),
-  zones C-1, Chases C0, Breathes C1, Wild C2, Multicolor C3, Primary
-  C4–B5, Secondary C6–B7. The visualiser now puts the two spots either
-  side of the bar grid (no labels); a pink *Flamingo Hitmix Lightshow*
-  title sits above it. Blackout trigger note removed (Controls button +
-  master dims cover it). Dropped recipes: sweep L/R + bar chase, kick,
+  gutter, so it lines up with Ableton's piano roll. Columns: Spots &
+  bars, Pixel zones (9 zones + Even/Odd/Thirds), Chases, Breathes, Wild,
+  Multicolor (two octaves), and the palettes split low/high (Prim C5/C6,
+  Sec C7). Every section starts on a C: Spots & Bars C-2 (blackout +
+  spots + bars), zones C-1, Chases C0, Breathes C1, Wild C2, Multicolor
+  C3–C4, Primary C5–B6, Secondary C7. The visualiser puts the two spots
+  either side of the bar grid (no labels); a pink *Flamingo Hitmix
+  Lightshow* title sits above it; a narrow far-right pane holds the
+  click-velocity slider. Dropped recipes: sweep L/R + bar chase, kick,
   tide.
 - **Extended dynamics + Multicolor bank** — grid-aware chases (diag
   up/dn), textures (waves, expand, contract, rain, ripple, halo), slow
