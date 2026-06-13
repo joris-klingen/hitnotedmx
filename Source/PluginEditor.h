@@ -22,6 +22,27 @@ public:
                            float rotaryEndAngle, juce::Slider&) override;
 };
 
+// Far-right "drag MIDI" tile. Latch a trigger set in the menu, then drag this
+// out to Finder / Ableton to drop a one-bar .mid holding the selected notes —
+// the same held chord the live preview plays. Inert while nothing is latched.
+class MidiDragTile : public juce::Component,
+                     public juce::SettableTooltipClient
+{
+public:
+    MidiDragTile();
+
+    // Supplies the currently-latched pitches (read at drag/paint time).
+    std::function<std::vector<int>()> getPitches;
+
+    void paint (juce::Graphics&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseEnter (const juce::MouseEvent&) override { repaint(); }
+    void mouseExit  (const juce::MouseEvent&) override { repaint(); }
+
+private:
+    bool dragging { false };   // guards re-entry while a drag loop is running
+};
+
 // Stripped-down editor for the skeleton commit. Shows:
 //   - the ENTTEC USB Pro connect / disconnect / blackout buttons
 //   - a scrolling text log of the most recent MIDI activity (drained
@@ -47,6 +68,7 @@ private:
     void timerCallback() override;
 
     void refreshDeviceStatus();
+    void updateConnectButton();                 // label tracks the session state
     void appendLog (const juce::String& line);  // queue; doesn't touch the editor
     void flushLogIfDirty();                     // one setText per tick
 
@@ -67,7 +89,8 @@ private:
     // the upcoming MIDI-drag options (bottom).
     juce::Slider clickVelSlider { juce::Slider::LinearVertical, juce::Slider::TextBoxBelow };
     juce::Label  clickVelLabel;
-    juce::Label  dragPlaceholder;
+    MidiDragTile midiDragTile;
+    std::vector<int> latchedPitches;   // mirrors the menu's latched set, for the drag
 
     // Master-dim knobs, attached to the host-automatable parameters so
     // the on-screen control, host automation, and any MIDI-mapped knob
@@ -94,7 +117,7 @@ private:
 
     std::vector<int> heldScratch;   // reused each tick for the live-MIDI highlight
 
-    bool connectAttempt = false;
+    bool lastLinkUp = false;   // tracks DMX link state to log drops / auto-recoveries
 
     // Pane card backgrounds, set in resized(), painted in paint().
     // titleArea is the strip above the visualiser carrying the app title.

@@ -1,6 +1,8 @@
 #include "PluginEditor.h"
 #include "Showcase.h"
 
+#include <juce_audio_basics/juce_audio_basics.h>
+
 namespace hitnotedmx
 {
 
@@ -13,6 +15,86 @@ juce::String midiNoteName (juce::uint8 pitch)
                                                true /* with octave */,
                                                3    /* MIDI 60 = C3 (Live convention) */);
 }
+
+// Write a one-bar held chord of `pitches` to `file` (overwriting). Mirrors the
+// held() clips in Showcase.cpp — same TPQN / velocity / channel — so a dragged
+// clip behaves identically to the showcase combos. Returns false on write fail.
+bool writeHeldChord (const juce::File& file, const std::vector<int>& pitches)
+{
+    constexpr int        kTpqn       = 960;   // ticks per quarter note (= 1 beat)
+    constexpr double     kBeatsPerBar = 4.0;
+    constexpr juce::uint8 kVel        = 100;
+
+    juce::MidiMessageSequence seq;
+    for (const int p : pitches)
+    {
+        if (p < 0 || p > 127)
+            continue;
+        seq.addEvent (juce::MidiMessage::noteOn  (1, p, kVel), 0.0);
+        seq.addEvent (juce::MidiMessage::noteOff (1, p), kBeatsPerBar * kTpqn);
+    }
+    seq.updateMatchedPairs();
+
+    juce::MidiFile mf;
+    mf.setTicksPerQuarterNote (kTpqn);
+    mf.addTrack (seq);
+
+    file.deleteFile();
+    if (auto os = file.createOutputStream())
+        return mf.writeTo (*os);
+    return false;
+}
+}
+
+MidiDragTile::MidiDragTile()
+{
+    setMouseCursor (juce::MouseCursor::DraggingHandCursor);
+}
+
+void MidiDragTile::paint (juce::Graphics& g)
+{
+    const int  count   = getPitches ? static_cast<int> (getPitches().size()) : 0;
+    const bool enabled = count > 0;
+    const bool hover   = isMouseOver();
+
+    auto r = getLocalBounds().toFloat().reduced (1.0f);
+    g.setColour (juce::Colour (enabled ? 0xff2e2e2e : 0xff242424));
+    g.fillRoundedRectangle (r, 4.0f);
+    g.setColour (enabled ? (hover ? juce::Colour (0xff39c6c0) : juce::Colour (0xff7a7a7a))
+                         : juce::Colour (0xff3a3a3a));
+    g.drawRoundedRectangle (r, 4.0f, 1.0f);
+
+    g.setColour (enabled ? (hover ? juce::Colours::white : juce::Colour (0xff9fbedd))
+                         : juce::Colour (0xff5a5a5a));
+    g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
+    const juce::String txt = enabled ? "DRAG\nMIDI\n(" + juce::String (count) + ")"
+                                      : "drag\n(pick\ntiles)";
+    g.drawFittedText (txt, getLocalBounds().reduced (2),
+                      juce::Justification::centred, 3, 0.8f);
+}
+
+void MidiDragTile::mouseDrag (const juce::MouseEvent& e)
+{
+    // One drag loop at a time; ignore tiny jitters so a stray click never
+    // spawns a file drag.
+    if (dragging || e.getDistanceFromDragStart() < 8 || ! getPitches)
+        return;
+
+    const auto pitches = getPitches();
+    if (pitches.empty())
+        return;
+
+    // A stable, human-readable temp name so the clip lands in Ableton/Finder as
+    // "HitNoteDmx clip" rather than a random temp filename. Rewritten per drag.
+    const auto file = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                          .getChildFile ("HitNoteDmx clip.mid");
+    if (! writeHeldChord (file, pitches))
+        return;
+
+    dragging = true;
+    juce::DragAndDropContainer::performExternalDragDropOfFiles (
+        { file.getFullPathName() }, false /* can't move our temp file */, this,
+        [this] { dragging = false; });
 }
 
 void DimKnobLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int width,
@@ -132,7 +214,11 @@ HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioP
     // the latched set drives the live preview.
     addAndMakeVisible (triggerMenu);
     triggerMenu.onSelectionChanged = [this] (const std::vector<int>& pitches)
-        { proc.setPreviewPitches (pitches); };
+    {
+        proc.setPreviewPitches (pitches);
+        latchedPitches = pitches;        // mirror for the MIDI-drag tile
+        midiDragTile.repaint();          // reflect the new count / enabled state
+    };
 
     // Far-right pane: click-velocity slider — sets the velocity that previewed
     // (clicked) triggers are held at, so the velocity-mapped behaviours can be
@@ -153,11 +239,11 @@ HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioP
         { proc.setPreviewVelocity (static_cast<int> (clickVelSlider.getValue())); };
     addAndMakeVisible (clickVelSlider);
 
-    dragPlaceholder.setText ("drag\n(soon)", juce::dontSendNotification);
-    dragPlaceholder.setJustificationType (juce::Justification::centred);
-    dragPlaceholder.setColour (juce::Label::textColourId, juce::Colour (0xff6a6a6a));
-    dragPlaceholder.setFont (juce::FontOptions (8.5f));
-    addAndMakeVisible (dragPlaceholder);
+    // Drag-MIDI tile: drag the currently-latched trigger set out to Finder /
+    // Ableton as a one-bar .mid. Reads the latched set captured above.
+    midiDragTile.getPitches = [this] { return latchedPitches; };
+    midiDragTile.setTooltip ("Latch triggers in the menu, then drag this out to drop a one-bar MIDI clip");
+    addAndMakeVisible (midiDragTile);
 
     midiLogView.setMultiLine (true, false);
     midiLogView.setReadOnly (true);
@@ -169,6 +255,8 @@ HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioP
     addAndMakeVisible (midiLogView);
 
     refreshDeviceStatus();
+    updateConnectButton();   // reflect a session already running (reopened editor)
+    lastLinkUp = proc.getDmx().isConnected();
     startTimerHz (15);  // visual confirmation only; combined with the
                         // visualiser's fingerprint diff, the actual
                         // GUI work is bounded by how often the rig's
@@ -198,7 +286,7 @@ void HitNoteDmxAudioProcessorEditor::paint (juce::Graphics& g)
         title.setExtraKerningFactor (0.12f);
         g.setFont (title);
         g.setColour (juce::Colour (0xfff48fb1));   // soft flamingo pink
-        g.drawText ("Flamingo Hitmix Lightshow", titleArea,
+        g.drawText ("Flamingo Hitmix at Night", titleArea,
                     juce::Justification::centred, false);
     }
 
@@ -291,7 +379,7 @@ void HitNoteDmxAudioProcessorEditor::resized()
         clickVelLabel.setBounds (top.removeFromTop (16));
         clickVelSlider.setBounds (top.reduced (0, 2));
         content.removeFromTop (8);
-        dragPlaceholder.setBounds (content);
+        midiDragTile.setBounds (content);
     }
 }
 
@@ -299,13 +387,21 @@ void HitNoteDmxAudioProcessorEditor::buttonClicked (juce::Button* b)
 {
     if (b == &connectUsbButton)
     {
-        connectAttempt = true;
-        const bool ok = proc.getDmx().connect();
-        if (! ok)
-            appendLog ("[usb] connect failed");
+        auto& dmx = proc.getDmx();
+        if (dmx.isRunning())
+        {
+            // Release the port so another instance can take it (or just stop).
+            dmx.disconnect();
+            appendLog ("[usb] disconnected");
+        }
         else
-            appendLog ("[usb] connected");
+        {
+            const bool ok = dmx.connect();
+            appendLog (ok ? "[usb] connected" : "[usb] connect failed");
+        }
         refreshDeviceStatus();
+        updateConnectButton();
+        lastLinkUp = dmx.isConnected();   // don't double-log via the timer
     }
     else if (b == &blackoutButton)
     {
@@ -353,6 +449,17 @@ void HitNoteDmxAudioProcessorEditor::timerCallback()
     }
     flushLogIfDirty();
 
+    // Surface auto-reconnect activity: the driver keeps the link alive on its
+    // own thread now, so poll its state and log the edges (drop / recovery) and
+    // refresh the status line — otherwise a mid-show hiccup would be silent.
+    const bool linkUp = proc.getDmx().isConnected();
+    if (linkUp != lastLinkUp)
+    {
+        appendLog (linkUp ? "[usb] link restored" : "[usb] link lost - reconnecting");
+        refreshDeviceStatus();
+        lastLinkUp = linkUp;
+    }
+
     // Light up trigger tiles whose notes are currently sounding (MIDI + preview).
     proc.getHeldPitches (heldScratch);
     triggerMenu.setLiveNotes (heldScratch);
@@ -370,6 +477,15 @@ void HitNoteDmxAudioProcessorEditor::refreshDeviceStatus()
 {
     deviceStatusLabel.setText (proc.getDmx().getStatusText(),
                                juce::dontSendNotification);
+}
+
+void HitNoteDmxAudioProcessorEditor::updateConnectButton()
+{
+    // "Disconnect" whenever this instance owns the port (incl. across an
+    // auto-reconnect gap); "Connect USB" otherwise. Driven by the session
+    // flag, not the momentary link, so it survives the editor being reopened.
+    connectUsbButton.setButtonText (proc.getDmx().isRunning() ? "Disconnect"
+                                                              : "Connect USB");
 }
 
 void HitNoteDmxAudioProcessorEditor::appendLog (const juce::String& line)

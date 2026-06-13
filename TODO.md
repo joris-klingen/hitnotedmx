@@ -5,20 +5,7 @@ architecture lives in [STATUS.md](STATUS.md).
 
 ## Show prep
 
-1. **DMX link resilience — auto-reconnect (RELIABILITY, do before a show)**
-   — the engine is robust, but the USB driver has no recovery: in
-   `EnttecProDmx::hiResTimerCallback` a single failed write calls
-   `closePort()` + `connected=false` and then the timer just returns forever,
-   so **one transient USB hiccup (wiggled cable, hub blip, brief stall) kills
-   output until someone manually clicks Connect** — i.e. lights-out mid-show.
-   Fix: on send failure keep the timer retrying `openPort()` + re-handshake
-   every ~1 s instead of latching off. Also make the write non-blocking
-   (`O_NONBLOCK` / write timeout, drop the frame on `EAGAIN`) so a stalled
-   device can't freeze output on the last frame. ~Half-day incl. the real
-   unplug/replug hardware testing, which is the bulk of it. One file, no
-   architectural change.
-
-2. **Polish the showcase content** — **Init. names** installs the embedded
+1. **Polish the showcase content** — **Init. names** installs the embedded
    named trigger rack into the Ableton User Library; **Show clips** writes a
    set of layered demo combo clips (static looks + within-the-bar movers) to
    `~/Music/HitNoteDmx Showcase/Combos/` and opens it in Finder. Follow-ups:
@@ -27,14 +14,7 @@ architecture lives in [STATUS.md](STATUS.md).
    low velocity to show the islands, a strobe velocity sweep). Tune clip
    count/length once auditioned.
 
-3. **Drag a MIDI clip from the plugin into the DAW** — once a selection is
-   built by clicking tiles in the trigger menu, let the user drag that latched
-   set out of the plugin as a MIDI clip (the active pitches as notes) and drop
-   it onto a track. Turns the menu into a quick clip builder and pairs with the
-   demo-clip library (#2). JUCE `performExternalDragDropOfFiles` on a generated
-   temp `.mid` is the likely path.
-
-4. **Visually tune the recipe banks** — all four feel-group octaves are now
+2. **Visually tune the recipe banks** — all four feel-group octaves are now
    full (48 recipes), implemented against numeric checks and ASCII-frame
    renders, not yet judged on real hardware. The newest fills (Wild:
    lightning/glitch/bounce/zigzag/converge/…; Multicolor: borealis, night sky,
@@ -42,7 +22,7 @@ architecture lives in [STATUS.md](STATUS.md).
    an eyeball. Speeds, band widths, gaussian radii and hue ramps are all
    single-constant tweaks in `Recipes.cpp`.
 
-5. **Pixel-density: re-roll, taste check, and C8 note controls** — the density
+3. **Pixel-density: re-roll, taste check, and C8 note controls** — the density
    gate drops pixels in a per-bar-even random order (avalanche hash, rank-
    normalised per bar; the old diagonal banding is fixed). Open work:
    - **Re-roll the thinned subset on each colour-note trigger** so the dropped
@@ -55,24 +35,18 @@ architecture lives in [STATUS.md](STATUS.md).
      breathe down for long swells) — same playable-modifier idea.
    - Confirm the scatter looks right on the physical bars; decide the default.
 
-6. **VU meter at very low levels** — wish: only the *lowest* LED dims when the
+4. **VU meter at very low levels** — wish: only the *lowest* LED dims when the
    signal is very low (today the floor is a fixed 2-pixel base with a fast
    per-beat release). Check the feel on hardware and tune the floor behaviour.
 
-7. **Superior Drummer trigger naming** — mirror the **Init. names** experience
+5. **Superior Drummer trigger naming** — mirror the **Init. names** experience
    for Superior Drummer, so the trigger vocabulary is usable by name when the
    show is driven from SD3 drum MIDI. Scope (named mapping template vs docs
    recipe) to be decided.
 
 ## Housekeeping
 
-8. **Instrument instead of audio effect?** — the plugin is an audio effect
-   with MIDI input (`IS_MIDI_EFFECT=TRUE` failed to load in Live, see
-   STATUS). Consider whether an instrument (`IS_SYNTH`) shape sits more
-   naturally on MIDI tracks; weigh routing/automation/host-compat trade-offs
-   before changing — the plugin identity would change for existing sessions.
-
-9. **Re-author pixel zones natively for 18 pixels** — the 9 "zones" are a
+6. **Re-author pixel zones natively for 18 pixels** — the 9 "zones" are a
    fossil of the old 9-pixel rig: each is authored as one zone then stretched
    2× to the physical pixels (`zone()` in `Composition.cpp`), while Even/Odd/
    Thirds are authored natively for 18. Two mental models for grouping pixels
@@ -81,6 +55,28 @@ architecture lives in [STATUS.md](STATUS.md).
 
 ## Recently shipped (see STATUS.md for detail)
 
+- **Plugin reshaped as an instrument** — was an audio effect with MIDI input;
+  now `IS_SYNTH=TRUE` with a silent stereo output bus, no audio input, VST3
+  category `Instrument`. Loads on a MIDI track *as the instrument* and gets MIDI
+  directly. The silent audio bus is the trick that makes Live load it (the pure
+  `IS_MIDI_EFFECT` shape didn't). Verified in Live + on the rig. Note: sessions
+  saved against the old audio-effect shape must re-add it (Fx → Instrument).
+- **DMX link resilience — auto-reconnect + toggle + exclusive port** — a
+  transient USB hiccup no longer latches output off. The send fd is `O_NONBLOCK`
+  after the handshake, so `sendPacket` distinguishes sent / would-block (drop one
+  frame, fixtures hold) / hard error; only a hard error drops the link, after
+  which the same timer re-opens the (serial-stable) callout path ~1×/s until it
+  recovers. `shouldRun` makes the timer the sole port owner; the editor button is
+  a **Connect/Disconnect toggle**. `ioctl(TIOCEXCL)` claims the port so a second
+  instance/app gets a clear "ENTTEC busy" instead of silently sharing it. The
+  editor logs drop/recovery edges and updates the status line. Verified with real
+  unplug/replug/wiggle and two instances on the ENTTEC + 228-channel rig.
+- **Drag a MIDI clip from the plugin into the DAW** — latch a set by clicking
+  tiles in the trigger menu, then drag the far-right **drag MIDI** tile out to
+  Finder / Ableton to drop a one-bar `.mid` of the latched notes as a held chord
+  (`MidiDragTile` in `PluginEditor.cpp`, `performExternalDragDropOfFiles` on a
+  temp `HitNoteDmx clip.mid`). Follow-ups: configurable length; name the file
+  from the selection.
 - **Mapping v1 frozen + mapping-tool** — the note mapping is versioned
   (`vocab::kMappingVersion`); each version's note→chainName map is a snapshot
   in `mappings/v<N>.tsv`, dumped/verified by the `mapping-tool` console app

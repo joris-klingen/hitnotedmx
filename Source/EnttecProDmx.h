@@ -35,6 +35,12 @@ public:
     void disconnect();
     bool isConnected() const                                { return connected.load(); }
 
+    // True once a connect succeeds, until disconnect(): "this instance owns /
+    // wants the port". Stays true across an auto-reconnect gap (when
+    // isConnected() is briefly false). Drives the editor's Connect/Disconnect
+    // toggle so only the owning instance shows "Disconnect".
+    bool isRunning() const                                  { return shouldRun.load(); }
+
     int  scanDevices();
     int  numDevices() const                                 { return numDevicesDetected; }
 
@@ -53,17 +59,28 @@ public:
     void  setStrobeHz (float hz)                            { strobeHz.store (hz); }
     float getStrobeHz() const                               { return strobeHz.load(); }
 
+    // Retry cadence for the auto-reconnect loop after the link drops mid-run.
+    // ~1 s between attempts (expressed in emitted frames at the send rate).
+    static constexpr int kReconnectFrames = kSendRateHz;
+
 private:
     void hiResTimerCallback() override;
 
-    bool openPort (const std::string& devicePath);
-    bool sendDmxFrame();
+    // `recordError` is suppressed on the auto-reconnect path: that runs on the
+    // timer thread, and writing `lastError` there would race the message-thread
+    // getStatusText() read. The first (user-initiated) connect records freely.
+    bool openPort (const std::string& devicePath, bool recordError = true);
+    bool setNonBlocking();         // switch the open fd to O_NONBLOCK for sends
+    void attemptReconnect();       // timer-thread: throttled re-open of the port
+    int  sendDmxFrame();           // 1 = sent, 0 = would-block (dropped), -1 = hard error
     int  sendPacket (int label, const unsigned char* data, int length);
     int  receivePacket (int label, unsigned char* data, unsigned int expectedLength);
     bool readByte (unsigned char& out);
     void closePort();
 
-    std::atomic<bool>  connected { false };
+    std::atomic<bool>  connected { false };  // a live port we are sending on
+    std::atomic<bool>  shouldRun  { false };  // user wants output (drives reconnect)
+    int                reconnectFramesLeft { 0 };  // send-thread only: retry countdown
     std::atomic<bool>  blackout  { false };
     std::atomic<float> strobeHz  { 0.0f };   // 0 = no strobe shutter
     std::uint64_t      txFrame   { 0 };       // emitted-frame counter (send thread only)

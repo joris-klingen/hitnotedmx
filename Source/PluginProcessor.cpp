@@ -58,8 +58,10 @@ HitNoteDmxAudioProcessor::createParameterLayout()
 }
 
 HitNoteDmxAudioProcessor::HitNoteDmxAudioProcessor()
+    // Instrument shape: an audio OUTPUT bus only (we emit silence). No input
+    // bus — the plugin is driven entirely by MIDI, and an instrument with an
+    // audio input is unusual and confuses some hosts' track routing.
     : AudioProcessor (BusesProperties()
-                          .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
                           .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       parameters (*this, nullptr, "DmxUniverse", createParameterLayout())
 {
@@ -95,14 +97,12 @@ void HitNoteDmxAudioProcessor::releaseResources() {}
 
 bool HitNoteDmxAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
-    // Mono or stereo on the main bus, input matches output. We don't
-    // process the audio at all, but accepting these layouts lets the host
-    // place the plugin on an audio-style chain (the usual shape for a
-    // "drive DMX from MIDI" effect).
+    // Instrument: a single mono/stereo OUTPUT bus, no input. We emit silence —
+    // the audio bus exists only so the host loads us as an instrument on a
+    // MIDI track; the real output is DMX over USB.
     const auto& mainOut = layouts.getMainOutputChannelSet();
-    if (mainOut != juce::AudioChannelSet::mono() && mainOut != juce::AudioChannelSet::stereo())
-        return false;
-    return mainOut == layouts.getMainInputChannelSet();
+    return mainOut == juce::AudioChannelSet::mono()
+        || mainOut == juce::AudioChannelSet::stereo();
 }
 
 void HitNoteDmxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
