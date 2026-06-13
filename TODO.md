@@ -5,26 +5,46 @@ architecture lives in [STATUS.md](STATUS.md).
 
 ## Show prep
 
-1. **Polish the showcase content** — **Init. names** installs the embedded
-   named trigger rack into the Ableton User Library; **Show clips** writes a
-   set of layered demo combo clips (static looks + within-the-bar movers) to
-   `~/Music/HitNoteDmx Showcase/Combos/` and opens it in Finder. Follow-ups:
-   add a few longer "song section" clips; palette-routing demos (primary vs
-   soft-velocity secondary); per-recipe velocity variants (e.g. a Breathe at
-   low velocity to show the islands, a strobe velocity sweep). Tune clip
-   count/length once auditioned.
+1. **Recipe-bank refinement (Blocks + Disco)** — all 48 recipes are tuned on
+   hardware and read well; the remaining work is focused on **Blocks** and
+   **Disco** (Multicolor), which still want improvement. Also folds in the
+   **VU-meter low-level** feel: only the *lowest* LED should dim at very low
+   signal (today a fixed 2-pixel floor with a fast per-beat release). Speeds,
+   band widths, gaussian radii and hue ramps are single-constant tweaks in
+   `Recipes.cpp`. See #2 for an automated quality net to make this tuning safer.
 
-2. **Visually tune the recipe banks** — all four feel-group octaves are now
-   full (48 recipes), implemented against numeric checks and ASCII-frame
-   renders, not yet judged on real hardware. The newest fills (Wild:
-   lightning/glitch/bounce/zigzag/converge/…; Multicolor: borealis, night sky,
-   galaxy, nebula, plasma, police, disco, blocks, VU smooth) especially want
-   an eyeball. Speeds, band widths, gaussian radii and hue ramps are all
-   single-constant tweaks in `Recipes.cpp`.
+2. **Render tool — recipe quality net, clip preview, hitdesigndmx integration**
+   — an offline render tool (sibling to `mapping-tool`) reusing the real
+   `computeDmx` engine so it can never drift, with a **headless rig rasteriser
+   factored out of `DmxVisualizer`** (one drawing path → preview, golden images
+   and clip renders all match). Three uses:
+   - **Vocabulary filmstrips (golden + preview)** — sample each recipe/trigger in
+     isolation → **contact-sheet PNGs** + a manifest (note → image + metadata),
+     emitted as a *versioned artifact* tied to `vocab::kMappingVersion` (same
+     dump-and-consume contract as `mappings/v<N>.tsv`). Doubles as a CTest
+     **golden-image regression guard** (a recipe's output changing trips a diff;
+     optional motion / colour metrics: frame-to-frame delta, coverage, hue
+     spread; optional **LLM-as-judge** for fuzzy triage) and as the hitdesigndmx
+     trigger-preview source.
+   - **Clip render, on demand (the design tool calls it)** — a CLI such as
+     `render-clip <in.mid> --out <out.gif|out_dir> [--fps N] [--bpm N]`: parse the
+     `.mid` (`juce::MidiFile`), drive `MidiState` + the beat clock over the clip's
+     duration, rasterise per frame, and emit an **animated GIF** (full motion —
+     best for a temporal clip) and/or a filmstrip contact sheet. Lets hitdesigndmx
+     preview *designed clips* and converted legacy sets without Live or hardware.
+     Deterministic (recipes are beat-time + hash driven), so renders reproduce.
+     GIF via a small vendored public-domain encoder, or emit a PNG frame-sequence
+     and let the Python side assemble the GIF with Pillow.
+   - **Why a file/CLI contract, not shared code** — repos differ in language
+     (C++ vs Python) and hitdesigndmx already hand-mirrors the mapping
+     (`vocab/hitnote_v1.py`) for conversion but can't reproduce the recipe
+     visuals; the authoritative C++ engine renders once, the Python tool consumes
+     the result. **Pin before either side depends on it:** the CLI signature, the
+     manifest schema, and the image/GIF layout.
 
-3. **Pixel-density: re-roll, taste check, and C8 note controls** — the density
-   gate drops pixels in a per-bar-even random order (avalanche hash, rank-
-   normalised per bar; the old diagonal banding is fixed). Open work:
+3. **Pixel-density: re-roll + C8 note controls** *(later)* — the density gate
+   drops pixels in a per-bar-even random order (avalanche hash, rank-normalised
+   per bar; the old diagonal banding is fixed). Open work:
    - **Re-roll the thinned subset on each colour-note trigger** so the dropped
      pixels change with the colour instead of staying fixed all show (more
      life); reseed the per-bar rank from the winning colour note.
@@ -35,26 +55,14 @@ architecture lives in [STATUS.md](STATUS.md).
      breathe down for long swells) — same playable-modifier idea.
    - Confirm the scatter looks right on the physical bars; decide the default.
 
-4. **VU meter at very low levels** — wish: only the *lowest* LED dims when the
-   signal is very low (today the floor is a fixed 2-pixel base with a fast
-   per-beat release). Check the feel on hardware and tune the floor behaviour.
-
-5. **Superior Drummer trigger naming** — mirror the **Init. names** experience
-   for Superior Drummer, so the trigger vocabulary is usable by name when the
-   show is driven from SD3 drum MIDI. Scope (named mapping template vs docs
-   recipe) to be decided.
-
-## Housekeeping
-
-6. **Re-author pixel zones natively for 18 pixels** — the 9 "zones" are a
-   fossil of the old 9-pixel rig: each is authored as one zone then stretched
-   2× to the physical pixels (`zone()` in `Composition.cpp`), while Even/Odd/
-   Thirds are authored natively for 18. Two mental models for grouping pixels
-   in the same column. Low priority (works fine) — re-author the zones as
-   native 18-pixel groups for consistency when convenient.
-
 ## Recently shipped (see STATUS.md for detail)
 
+- **Pixel zones re-authored natively for 18 pixels** — the nine zones used a
+  `zone(z) = bit(2z-1)|bit(2z)` helper (a fossil of the old 9-pixel rig) while
+  Even/Odd/Thirds were native; now all of `kPixelStaticMask` is authored in real
+  18-pixel terms via a `span(first,last)` helper (zones = contiguous pairs 1-2 …
+  17-18). Behaviour-preserving — `static_assert`s pin the masks byte-identical to
+  the old definitions, so note meanings are unchanged (no mapping bump).
 - **Plugin reshaped as an instrument** — was an audio effect with MIDI input;
   now `IS_SYNTH=TRUE` with a silent stereo output bus, no audio input, VST3
   category `Instrument`. Loads on a MIDI track *as the instrument* and gets MIDI
