@@ -31,13 +31,17 @@ juce_add_plugin(HitNoteDmx
     FORMATS                     VST3 Standalone
     PRODUCT_NAME                "HitNoteDmx"
     DESCRIPTION                 "MIDI-driven DMX-512 lighting controller (VST3)"
-    IS_SYNTH                    FALSE
+    # Shaped as an INSTRUMENT, not an audio effect: it lives on a MIDI track as
+    # the instrument and receives MIDI directly. We keep an audio output bus
+    # (emits silence) so Live loads it happily — the pure MIDI-effect shape
+    # (IS_MIDI_EFFECT=TRUE, no audio bus) failed to load in Live (see STATUS).
+    IS_SYNTH                    TRUE
     NEEDS_MIDI_INPUT            TRUE
     NEEDS_MIDI_OUTPUT           FALSE
     IS_MIDI_EFFECT              FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
     COPY_PLUGIN_AFTER_BUILD     TRUE
-    VST3_CATEGORIES             "Fx" "Tools"
+    VST3_CATEGORIES             "Instrument"
 )
 
 target_sources(HitNoteDmx PRIVATE

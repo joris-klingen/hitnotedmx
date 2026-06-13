@@ -91,12 +91,12 @@ constexpr std::array<std::uint8_t, kNumBarSelectors> kBarSelectorMask {{
 inline constexpr bool isBarSelPitch (int p) { return p >= kBarSelStart && p <= kBarSelEnd; }
 
 
-// ---- pixel statics (pitch 12..22, the C-1 octave) -----------------------
-// 18-bit mask: bit n (0..17) = pixel (n+1) selected.
+// ---- pixel statics (pitch 12..23, the C-1 octave) -----------------------
+// 18-bit mask: bit n (0..17) = pixel (n+1) selected, 1 = bottom.
 //
-// Nine zones (authored against the historical 9-pixel layout, each stretched
-// to the two adjacent physical pixels 2z-1 / 2z) followed by Even / Odd combs
-// that light every other physical pixel.
+// Authored natively in real 18-pixel terms (one mental model for the whole
+// octave): the nine zones are contiguous pixel pairs spanning the bar
+// bottom-to-top (1-2, 3-4, … 17-18), followed by the Even / Odd / Thirds combs.
 
 constexpr int kPixelStaticStart = 12;
 constexpr int kPixelStaticEnd   = 23;
@@ -107,9 +107,12 @@ constexpr std::uint32_t bit (int p)  // 1-based pixel → bit
     return static_cast<std::uint32_t> (1u << (p - 1));
 }
 
-constexpr std::uint32_t zone (int z)  // 1-based 9-zone index → its two pixels
+constexpr std::uint32_t span (int first, int last)  // contiguous pixels [first..last]
 {
-    return bit (2 * z - 1) | bit (2 * z);
+    std::uint32_t m = 0;
+    for (int p = first; p <= last; ++p)
+        m |= bit (p);
+    return m;
 }
 
 constexpr std::uint32_t everyN (int first, int step)  // first..18 step → comb mask
@@ -121,19 +124,24 @@ constexpr std::uint32_t everyN (int first, int step)  // first..18 step → comb
 }
 
 constexpr std::array<std::uint32_t, kNumPixelStatics> kPixelStaticMask {{
-    zone(1),          // 12
-    zone(2),          // 13
-    zone(3),          // 14
-    zone(4),          // 15
-    zone(5),          // 16
-    zone(6),          // 17
-    zone(7),          // 18
-    zone(8),          // 19
-    zone(9),          // 20
+    span (1, 2),      // 12: zone 1  (pixels 1-2)
+    span (3, 4),      // 13: zone 2  (3-4)
+    span (5, 6),      // 14: zone 3  (5-6)
+    span (7, 8),      // 15: zone 4  (7-8)
+    span (9, 10),     // 16: zone 5  (9-10)
+    span (11, 12),    // 17: zone 6  (11-12)
+    span (13, 14),    // 18: zone 7  (13-14)
+    span (15, 16),    // 19: zone 8  (15-16)
+    span (17, 18),    // 20: zone 9  (17-18)
     everyN (2, 2),    // 21 even pixels   (2,4,…,18)
     everyN (1, 2),    // 22 odd pixels    (1,3,…,17)
     everyN (1, 3),    // 23 every 3rd     (1,4,7,10,13,16)
 }};
+
+// Behaviour-preserving refactor guard: each zone must remain its original
+// adjacent-pixel pair (old helper was zone(z) = bit(2z-1) | bit(2z)).
+static_assert (kPixelStaticMask[0] == (bit (1)  | bit (2)),  "zone 1 mask changed");
+static_assert (kPixelStaticMask[8] == (bit (17) | bit (18)), "zone 9 mask changed");
 
 inline constexpr bool isPixelStaticPitch (int p)
 {

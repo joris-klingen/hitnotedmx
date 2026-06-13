@@ -121,7 +121,7 @@ int EnttecProDmx::scanDevices()
     return numDevicesDetected;
 }
 
-bool EnttecProDmx::openPort (const std::string& devicePath)
+bool EnttecProDmx::openPort (const std::string& devicePath, bool recordError)
 {
     // O_NONBLOCK so the open itself never stalls waiting on modem control
     // lines (a known FTDI-on-Apple-Silicon hang); we clear it again below so
@@ -129,14 +129,25 @@ bool EnttecProDmx::openPort (const std::string& devicePath)
     int fd = ::open (devicePath.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
     if (fd < 0)
     {
-        lastError = "Could not open " + juce::String (devicePath)
+        if (recordError)
+            lastError = errno == EBUSY
+                ? "ENTTEC busy - another instance or app already has the port."
+                : "Could not open " + juce::String (devicePath)
                   + " (" + juce::String (std::strerror (errno)) + ").";
         return false;
     }
 
+    // Claim the port exclusively. macOS cu.* callout devices are NOT exclusive
+    // by default, so without this a second plugin instance (or another app)
+    // would open() the same port successfully and both would write — producing
+    // interleaved, corrupt DMX. With TIOCEXCL the first owner holds it and the
+    // next open() gets EBUSY (handled above). Released on close(). Best-effort.
+    ioctl (fd, TIOCEXCL);
+
     if (fcntl (fd, F_SETFL, 0) == -1)   // back to blocking I/O
     {
-        lastError = "Could not configure the serial port (fcntl).";
+        if (recordError)
+            lastError = "Could not configure the serial port (fcntl).";
         ::close (fd);
         return false;
     }
@@ -144,7 +155,8 @@ bool EnttecProDmx::openPort (const std::string& devicePath)
     struct termios options {};
     if (tcgetattr (fd, &options) != 0)
     {
-        lastError = "tcgetattr failed on the serial port.";
+        if (recordError)
+            lastError = "tcgetattr failed on the serial port.";
         ::close (fd);
         return false;
     }
@@ -167,7 +179,8 @@ bool EnttecProDmx::openPort (const std::string& devicePath)
 
     if (tcsetattr (fd, TCSANOW, &options) != 0)
     {
-        lastError = "tcsetattr failed on the serial port.";
+        if (recordError)
+            lastError = "tcsetattr failed on the serial port.";
         ::close (fd);
         return false;
     }
@@ -176,7 +189,8 @@ bool EnttecProDmx::openPort (const std::string& devicePath)
     speed_t baud = kBaudRate;
     if (ioctl (fd, IOSSIOSPEED, &baud) == -1)
     {
-        lastError = "Could not set the serial baud rate.";
+        if (recordError)
+            lastError = "Could not set the serial baud rate.";
         ::close (fd);
         return false;
     }
@@ -195,6 +209,12 @@ bool EnttecProDmx::connect()
 {
     if (connected.load())
         return true;
+
+    // A session is already armed: the timer thread owns the port and is
+    // retrying on its own. Bail rather than open a second fd concurrently —
+    // clicking Connect during an auto-reconnect must not race the timer.
+    if (shouldRun.load())
+        return false;
 
     if (selectedDevicePath.empty())
         scanDevices();
@@ -236,19 +256,35 @@ bool EnttecProDmx::connect()
         }
     }
 
+    // The handshake reads relied on blocking I/O (VMIN/VTIME). The send loop
+    // never reads and must never stall the timer thread, so switch to
+    // non-blocking writes now: a wedged device drops frames (EAGAIN) instead
+    // of freezing output on the last frame.
+    setNonBlocking();
+
     connected.store (true);
+    shouldRun.store (true);   // arm the auto-reconnect loop for the session
     lastError = {};
     txFrame = 0;
+    reconnectFramesLeft = 0;
     startTimer (1000 / kSendRateHz);   // ms period → kSendRateHz frames/sec
     return true;
 }
 
 void EnttecProDmx::disconnect()
 {
+    shouldRun.store (false);   // user intent: stop — don't auto-reconnect
     stopTimer();
     closePort();
     connected.store (false);
     scanDevices();
+}
+
+bool EnttecProDmx::setNonBlocking()
+{
+    if (serialFd < 0)
+        return false;
+    return fcntl (serialFd, F_SETFL, O_NONBLOCK) != -1;
 }
 
 void EnttecProDmx::closePort()
@@ -279,6 +315,12 @@ juce::String EnttecProDmx::getStatusText() const
              + "\nRefresh rate: " + juce::String (refreshRate);
     }
 
+    // Link dropped mid-session: the timer thread is retrying ~1×/s. shouldRun
+    // is the user's "I want output" intent, so this only shows after a real
+    // connect, not on an idle plugin.
+    if (shouldRun.load())
+        return "DMX link lost - reconnecting...";
+
     if (! lastError.isEmpty())
         return lastError;
 
@@ -300,17 +342,49 @@ void EnttecProDmx::setChannel (int channel, juce::uint8 value)
 
 void EnttecProDmx::hiResTimerCallback()
 {
-    if (! connected.load())
-        return;
+    if (! shouldRun.load())
+        return;   // user disconnected; a tick may still be in flight
 
-    if (! sendDmxFrame())
+    if (! connected.load())
+    {
+        attemptReconnect();
+        return;
+    }
+
+    // Only a HARD error (device gone) drops the link and arms a reconnect. A
+    // would-block (EAGAIN, return 0) just drops this one frame and tries again
+    // next tick — the fixtures hold their last values, so a brief stall is
+    // invisible rather than a blackout, and a wiggled cable no longer latches
+    // output off until someone clicks Connect.
+    if (sendDmxFrame() < 0)
     {
         closePort();
         connected.store (false);
+        reconnectFramesLeft = kReconnectFrames;   // wait ~1 s before re-opening
     }
 }
 
-bool EnttecProDmx::sendDmxFrame()
+void EnttecProDmx::attemptReconnect()
+{
+    // Throttle: one re-open attempt per ~kReconnectFrames ticks.
+    if (reconnectFramesLeft > 0)
+    {
+        --reconnectFramesLeft;
+        return;
+    }
+    reconnectFramesLeft = kReconnectFrames;
+
+    // Retry the same callout path the session opened. It is derived from the
+    // device serial (/dev/cu.usbserial-EN<serial>), so it survives a replug;
+    // re-scanning here would race the message-thread scanDevices(), so we don't.
+    if (selectedDevicePath.empty() || ! openPort (selectedDevicePath, false /* don't record: timer thread */))
+        return;
+
+    setNonBlocking();
+    connected.store (true);   // back in business; firmware/refresh kept from connect()
+}
+
+int EnttecProDmx::sendDmxFrame()
 {
     bool dark = blackout.load();
 
@@ -335,13 +409,13 @@ bool EnttecProDmx::sendDmxFrame()
         const juce::ScopedLock lock (dataLock);
         snapshot = dark ? blackoutData : dmxData;
     }
-    return sendPacket (SET_DMX_TX_MODE, snapshot.data(), kDataLen) > 0;
+    return sendPacket (SET_DMX_TX_MODE, snapshot.data(), kDataLen);
 }
 
 int EnttecProDmx::sendPacket (int label, const unsigned char* data, int length)
 {
     if (serialFd < 0)
-        return 0;
+        return -1;   // no port → hard error (caller arms a reconnect)
 
     // Assemble the full ENTTEC frame: start, label, len LSB/MSB, data, end.
     std::vector<unsigned char> packet;
@@ -362,10 +436,16 @@ int EnttecProDmx::sendPacket (int label, const unsigned char* data, int length)
         {
             if (errno == EINTR)
                 continue;
-            return 0;
+            // EAGAIN/EWOULDBLOCK: the device's buffer is momentarily full (the
+            // fd is non-blocking during the send loop). Drop this frame and try
+            // again next tick rather than blocking the timer thread. Any other
+            // errno (EIO/ENXIO/EBADF — device unplugged) is a hard failure.
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+                return 0;
+            return -1;
         }
         if (n == 0)
-            return 0;
+            return -1;
         sent += (size_t) n;
     }
 
