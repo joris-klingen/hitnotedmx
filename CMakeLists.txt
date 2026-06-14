@@ -109,6 +109,30 @@ target_link_libraries(mapping-tool PRIVATE
     juce::juce_recommended_warning_flags
 )
 
+# ---- recipe-render ----------------------------------------------------------
+# A console tool that renders film-strip / contact-sheet PNG previews of the
+# dynamic recipes by driving the REAL composition path (computeDmx) offline.
+# Used to eyeball and iterate on recipes without launching the plugin in a host.
+juce_add_console_app(recipe-render PRODUCT_NAME "recipe-render")
+target_sources(recipe-render PRIVATE
+    tools/RecipeRender.cpp
+    Source/Recipes.cpp
+    Source/Composition.cpp
+    Source/MidiState.cpp
+    Source/TriggerVocabulary.cpp
+)
+target_include_directories(recipe-render PRIVATE Source)
+target_compile_definitions(recipe-render PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_STANDALONE_APPLICATION=1
+)
+target_link_libraries(recipe-render PRIVATE
+    juce::juce_gui_basics
+    juce::juce_recommended_config_flags
+    juce::juce_recommended_warning_flags
+)
+
 # Guard against accidental mapping drift: the current vocabulary must match the
 # frozen snapshot for kMappingVersion. If you changed a note's meaning on
 # purpose, bump kMappingVersion and re-freeze (see mappings/README.md).

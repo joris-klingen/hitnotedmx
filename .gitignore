@@ -4,6 +4,9 @@ out/
 *.vst3
 *.dSYM
 
+# Generated recipe preview sheets (recipe-render output)
+previews/
+
 # JUCE / CMake noise
 CMakeCache.txt
 CMakeFiles/
