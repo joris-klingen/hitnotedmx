@@ -55,6 +55,33 @@ architecture lives in [STATUS.md](STATUS.md).
      breathe down for long swells) — same playable-modifier idea.
    - Confirm the scatter looks right on the physical bars; decide the default.
 
+4. **Chase blend mode — "on top" vs mask (toggle note, top octave)** *(later)* —
+   today a held brightness dynamic (chase/breathe/wild) acts as a **mask**: lit
+   pixels are the *intersection* of the bar/zone/dynamic layers, so a chase
+   carves its moving shape OUT of the colour wash (the dynamic value multiplies
+   the per-pixel brightness in `computeDmx`'s bar compose). Add a **toggle note
+   in the C8 modifier octave** (alongside the density / soft-edges / speed
+   modifiers in #3) that switches the dynamic layer to **additive / on-top**: the
+   base wash stays full and the chase *adds* its lit pixels over it instead of
+   gating them (a `max`/add at the dynamic-mask step instead of the multiply).
+   Default stays mask — the current behaviour. Useful with the layering workflow
+   (multicolor wash + a chase riding on top without darkening the rest).
+
+## Bigger / longer-term
+
+5. **Abstract the rig so it can change (add fixtures)** — today the rig is
+   hardcoded everywhere: `Rig.h` fixes 4 bars × 18 pixels + 2 spots and the
+   228-channel patch, the note vocabulary and recipes assume exactly that
+   geometry (bar/zone masks are 18-bit, spots are a fixed pair), and the
+   visualiser draws that exact layout. Adding or changing fixtures means edits
+   in many places. At some point elevate to a **data-driven rig model** — a rig
+   description (fixture types, counts, DMX start addresses, per-fixture
+   pixel/channel layout) that `computeDmx`, the recipes, the vocabulary and the
+   visualiser all read from, so a new rig is a config change, not a code change.
+   Big, cross-cutting refactor with real show-compat implications (the mapping
+   would likely need to become rig-aware / re-versioned), so it's not show-prep
+   — scope it deliberately when the rig actually needs to grow.
+
 ## Recently shipped (see STATUS.md for detail)
 
 - **Pixel zones re-authored natively for 18 pixels** — the nine zones used a
