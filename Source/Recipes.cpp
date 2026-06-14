@@ -875,10 +875,20 @@ RecipeRGB blocks (double t, int barIdx, int pixel, int nPix, int nBars, float /*
 
 RecipeRGB disco (double t, int barIdx, int pixel, int nPix, int nBars, float /*param*/) noexcept
 {
-    // Colour blocks masked to whole AREAS, so at least half the grid stays
-    // dark: each pulse picks a region (a half, or a diagonal pair of quadrants)
-    // to light, and the colour blocks inside it shuffle. The lit region jumps
-    // around, so the colour moves in big chunks rather than filling everything.
+    // A dancefloor, not a rainbow. Two things keep it disco rather than confetti:
+    //   1. colours come from a SMALL bold palette (red/amber/green/cyan/blue/
+    //      magenta), never a continuous random hue — so no muddy in-betweens;
+    //   2. each beat-step uses just TWO of them (rotating through the palette),
+    //      laid out as a block checker, so the floor reads as a coherent
+    //      two-colour flash that changes on the beat.
+    // The region mask is unchanged: each step lights one big area (a half, or a
+    // diagonal quadrant pair) so at least half the grid stays dark.
+    constexpr float kPalette[6] = { 0.00f,   // red
+                                    0.07f,   // amber
+                                    0.33f,   // green
+                                    0.50f,   // cyan
+                                    0.66f,   // blue
+                                    0.85f }; // magenta
     const int  step    = static_cast<int> (t * 2.0);   // ~twice per beat
     const int  pattern = static_cast<int> (hash01 (static_cast<std::uint32_t> (step) * 2654435761u) * 6.0f);
     const bool leftHalf = barIdx < nBars / 2;
@@ -895,9 +905,13 @@ RecipeRGB disco (double t, int barIdx, int pixel, int nPix, int nBars, float /*p
     }
     if (! lit)
         return { 0.0f, 0.0f, 0.0f };
-    const int   seg = (pixel - 1) / 3;
-    const float hue = hash01 (static_cast<std::uint32_t> (step * 16 + barIdx * 4 + seg));
-    return hueToRgb (hue, 1.0f);
+    // Two palette colours this step (a != b), assigned per block as a checker.
+    const int a = static_cast<int> (hash01 (static_cast<std::uint32_t> (step) * 40503u) * 6.0f);
+    int       b = static_cast<int> (hash01 (static_cast<std::uint32_t> (step) * 22695477u + 1u) * 6.0f);
+    if (b == a) b = (b + 1) % 6;
+    const int  seg  = (pixel - 1) / 3;
+    const bool useA = ((barIdx + seg) & 1) == 0;
+    return hueToRgb (kPalette[useA ? a : b], 1.0f);
 }
 
 RecipeRGB twilight (double t, int /*barIdx*/, int pixel, int nPix, int /*nBars*/, float /*param*/) noexcept
