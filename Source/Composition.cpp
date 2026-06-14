@@ -23,7 +23,7 @@ namespace hitnotedmx
 //   ──────────────────────   ───────────────────────────────────────────────
 //   Bar / pixel-zone select  Palette ROUTE: >= 64 → primary, < 64 → secondary
 //                            (kVelocityThreshold; see routeForVelocity)
-//   Chases (brightness)      TAIL length of the comet head — soft = long trail
+//   Chases (brightness)      TAIL length of the comet head — hard = long trail
 //   Wild (brightness)        Beat-synced SPEED division (127 = 1/16 … 0 = 1/1);
 //                            sparkle / sparkle_few stay free-running
 //   Breathes (brightness)    DENSITY — soft carves the shape into smooth
@@ -436,7 +436,7 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
     // Brightness dynamics contribute brightness/motion only — they do NOT pick
     // a colour route; the colour comes from the bar/zone selectors or the
     // primary palette. What the note's VELOCITY means depends on the bank:
-    //   • Chases   → trail length (tail; soft = long comet)
+    //   • Chases   → trail length (tail; hard = long comet)
     //   • Wild     → beat-synced speed (127 = 1/16 … 0 = 1/1) — except sparkle /
     //                sparkle_few, which stay free (continuous velocity speed)
     //   • Breathes → island density (+ half speed, except ripple)
@@ -493,7 +493,7 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
                 recipes[nRecipes++] = { fn, kDensity, tScale, vel / 127.0f, seed };
             }
             else
-                recipes[nRecipes++] = { fn, kTail, 1.0f, 1.0f - vel / 127.0f, 0.0f };   // tail
+                recipes[nRecipes++] = { fn, kTail, 1.0f, vel / 127.0f, 0.0f };   // tail (hard = long comet)
         }
         else if (isColorDynPitch (pitch))
         {
