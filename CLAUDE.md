@@ -9,6 +9,19 @@ verified changes over restructuring.
 - Open backlog (show-prep priorities first): [TODO.md](TODO.md)
 - Note-mapping freeze/versioning procedure: [mappings/README.md](mappings/README.md)
 
+## Finding things
+
+When you need "where is X / what is X", read the one file that *owns* it
+rather than reconstructing the answer from constants spread across files:
+
+- **Concern → file** — the per-layer table in [STATUS.md](STATUS.md) maps every
+  layer (rig, palette, recipes, driver, editor …) to its file(s). Start there.
+- **What a note does / which notes are free** — [`mappings/v1.tsv`](mappings/v1.tsv),
+  the frozen 128-row `note → meaning` snapshot (`-` = unused). Read it instead of
+  tracing the `kXxxStart` note-range constants by hand.
+- **Note → label / menu / rack-name logic** — `Source/TriggerVocabulary.{h,cpp}`,
+  the single source of truth that both the menu and rack namer read.
+
 ## Invariants
 
 - `Source/TriggerVocabulary.{h,cpp}` is the single source of truth for the

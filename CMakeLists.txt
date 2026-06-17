@@ -2,8 +2,12 @@ cmake_minimum_required(VERSION 3.22)
 
 project(HitNoteDmx VERSION 0.1.0 LANGUAGES C CXX)
 
+# HitNoteDmx ships for macOS: the ENTTEC driver uses IOKit (discovery) and
+# POSIX termios (serial I/O). Non-Apple builds compile a no-op driver stub
+# (see EnttecProDmx.cpp) so the GUI / aesthetics can be developed
+# cross-platform; DMX output is disabled there.
 if(NOT APPLE)
-    message(FATAL_ERROR "HitNoteDmx targets macOS only. Build on a Mac.")
+    message(STATUS "HitNoteDmx: non-Apple build - DMX driver is a no-op stub (GUI only).")
 endif()
 
 set(CMAKE_CXX_STANDARD 17)
@@ -78,8 +82,6 @@ target_compile_definitions(HitNoteDmx PRIVATE
 
 target_link_libraries(HitNoteDmx PRIVATE
     HitNoteDmxData
-    "-framework IOKit"
-    "-framework CoreFoundation"
     juce::juce_audio_utils
     juce::juce_audio_processors
     juce::juce_gui_basics
@@ -87,6 +89,15 @@ target_link_libraries(HitNoteDmx PRIVATE
     juce::juce_recommended_lto_flags
     juce::juce_recommended_warning_flags
 )
+
+# IOKit + CoreFoundation back the macOS-only ENTTEC driver. Off-Apple the
+# driver is stubbed (see EnttecProDmx.cpp), so these frameworks aren't linked.
+if(APPLE)
+    target_link_libraries(HitNoteDmx PRIVATE
+        "-framework IOKit"
+        "-framework CoreFoundation"
+    )
+endif()
 
 # ---- mapping-tool -----------------------------------------------------------
 # A console tool that links the plugin's TriggerVocabulary (the single source
