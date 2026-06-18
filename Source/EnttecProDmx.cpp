@@ -1,5 +1,7 @@
 #include "EnttecProDmx.h"
 
+#if defined(__APPLE__)
+
 #include <cerrno>
 #include <cmath>
 #include <cstring>
@@ -512,3 +514,64 @@ int EnttecProDmx::receivePacket (int label, unsigned char* data, unsigned int ex
 }
 
 }
+
+#else // ! __APPLE__
+
+// ---------------------------------------------------------------------------
+// Non-Apple (e.g. Windows) stub. The real driver depends on macOS IOKit +
+// POSIX termios, which don't exist here. This no-op build exists purely so the
+// GUI / aesthetics can be developed cross-platform: connect() always reports
+// no device, the send timer never runs, and DMX output is disabled. setChannel
+// still records values (harmless) so any visualiser that reads them works.
+// ---------------------------------------------------------------------------
+namespace hitnotedmx
+{
+
+EnttecProDmx::EnttecProDmx()
+{
+    dmxData.fill (0);
+    blackoutData.fill (0);
+}
+
+EnttecProDmx::~EnttecProDmx()
+{
+    stopTimer();
+}
+
+int EnttecProDmx::scanDevices()
+{
+    numDevicesDetected = 0;
+    return 0;
+}
+
+bool EnttecProDmx::connect()
+{
+    lastError = "DMX output is disabled on this build (macOS-only driver).";
+    return false;
+}
+
+void EnttecProDmx::disconnect()
+{
+    shouldRun.store (false);
+    stopTimer();
+    connected.store (false);
+}
+
+juce::String EnttecProDmx::getStatusText() const
+{
+    return "DMX output disabled on this build (macOS-only ENTTEC driver).";
+}
+
+void EnttecProDmx::setChannel (int channel, juce::uint8 value)
+{
+    if (channel < 1 || channel > kDmxUniverseSize)
+        return;
+    const juce::ScopedLock lock (dataLock);
+    dmxData[(size_t) channel] = value;
+}
+
+void EnttecProDmx::hiResTimerCallback() {}
+
+}
+
+#endif // __APPLE__
