@@ -49,7 +49,8 @@ architecture lives in [STATUS.md](STATUS.md).
      pixels change with the colour instead of staying fixed all show (more
      life); reseed the per-bar rank from the winning colour note.
    - **Expose density + a new "soft edges (2D)" feather as note options in the
-     C8 octave** (120–127), velocity = intensity — playable from MIDI like the
+     C8 octave** (now **123–127** — 120–122 are the Master column: bump-white /
+     bump-color / freeze), velocity = intensity — playable from MIDI like the
      other layers, alongside the existing automatable density knob.
    - Consider **speed utilities** in the same top octave (e.g. slow a held
      breathe down for long swells) — same playable-modifier idea.
@@ -67,9 +68,30 @@ architecture lives in [STATUS.md](STATUS.md).
    Default stays mask — the current behaviour. Useful with the layering workflow
    (multicolor wash + a chase riding on top without darkening the rest).
 
+5. **Master hits → move to the editor left pane; give the bump a decay tail**
+   *(discuss implementation first)* — relocate bump-white / bump-color / freeze
+   out of the trigger menu's **Master column** and into the **editor left pane,
+   below the master-dim / density knobs** (buttons/controls, not MIDI notes).
+   Removing them from the vocabulary **frees notes 120–122 again**, so it needs a
+   **mapping re-freeze** (v3) and the C8 modifier notes in #3/#4 reclaim the room.
+   - **Bump envelope:** attack always **instant (0)** — snap to full on the hit —
+     followed by a **decay tail whose length scales with velocity** (harder hit =
+     longer ring-out), replacing today's hard on/off gate. Needs persistent
+     envelope state in the processor (the note is gone after release), advanced
+     by `dtSeconds` each block like `ColorFadeState`.
+
+6. **Playable note controls — speed + crossfade** *(discuss implementation first)*
+   — note-driven modifiers in the same playable family as the C8 controls in #3:
+   - **Speed control** — a note whose velocity scales the global animation clock
+     (slow held breathes for long swells, or speed chases up). Supersedes the
+     speed-utility bullet in #3.
+   - **Crossfade control** — a note that crossfades (primary↔secondary, or
+     wash↔dynamic — semantics TBD) and how it composes with the existing layers.
+   Both: decide note placement, velocity meaning, and compositing before building.
+
 ## Bigger / longer-term
 
-5. **Abstract the rig so it can change (add fixtures)** — today the rig is
+7. **Abstract the rig so it can change (add fixtures)** — today the rig is
    hardcoded everywhere: `Rig.h` fixes 4 bars × 18 pixels + 2 spots and the
    228-channel patch, the note vocabulary and recipes assume exactly that
    geometry (bar/zone masks are 18-bit, spots are a fixed pair), and the
@@ -84,6 +106,14 @@ architecture lives in [STATUS.md](STATUS.md).
 
 ## Recently shipped (see STATUS.md for detail)
 
+- **Master / global hits (bump-white, bump-color, freeze)** — three "master"
+  controls on the top free notes (C8 octave: 120/121/122), above the palette.
+  Bump-white / bump-color override the whole rig with a velocity-level flash
+  (white, or the current primary hue); freeze holds the previous frame while
+  held (blackout still dominates; beat clock keeps running). Whole-rig
+  overrides in `computeDmx`, not per-fixture triggers. Mapping re-frozen at
+  **v2** (`mappings/v2.tsv`); new "Master" vocabulary column (prefix `ms`).
+  Built + `mapping-frozen` green.
 - **Pixel zones re-authored natively for 18 pixels** — the nine zones used a
   `zone(z) = bit(2z-1)|bit(2z)` helper (a fossil of the old 9-pixel rig) while
   Even/Odd/Thirds were native; now all of `kPixelStaticMask` is authored in real

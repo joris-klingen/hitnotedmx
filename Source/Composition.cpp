@@ -16,8 +16,8 @@ namespace hitnotedmx
 //
 // ─── Velocity semantics ────────────────────────────────────────────────────
 // A note's velocity is overloaded: it means something different depending on
-// which layer the note belongs to. All four interpretations are applied here
-// in computeDmx (or in the recipe it dispatches to):
+// which layer the note belongs to. All of these interpretations are applied
+// here in computeDmx (or in the recipe it dispatches to):
 //
 //   Layer                    Velocity controls
 //   ──────────────────────   ───────────────────────────────────────────────
@@ -35,9 +35,12 @@ namespace hitnotedmx
 //   Palette colour notes     Colour-FADE duration only — hard = instant snap,
 //                            soft = slow rise to FULL colour (advanceFade).
 //                            Brightness comes from the bar-selector layer.
+//   Master hits (bumps)      Flash LEVEL — velocity scales the whole-rig
+//                            override (white / current colour); see section 9
 //
-// Spots and blackout ignore velocity. (When the C8 density / soft-edge note
-// controls land, velocity will set their intensity — see TODO.)
+// Spots, blackout and freeze ignore velocity. The C8 octave's remaining free
+// notes (123–127) are pencilled in for density / soft-edge / speed note
+// controls (see TODO) — velocity will set their intensity.
 
 namespace
 {
@@ -51,6 +54,16 @@ constexpr float kSpotWarmG = 0.15f;
 // Lowest note in the vocabulary: a hard kill of the whole rig. The rest of
 // the octave-0 triggers sit one semitone above it.
 constexpr int kBlackoutNote = 0;
+
+// ---- master / global hits (top of the keyboard, octave 8) ---------------
+// Played from the highest free notes as momentary "master" controls, above
+// the palette. Unlike every other trigger these are NOT per-fixture: they
+// override or hold the whole composed frame. Mirrored in the vocabulary's
+// "Master" column (TriggerVocabulary.cpp) — keep the note numbers in step
+// (the mapping-frozen test guards the labels, not these behaviour constants).
+constexpr int kBumpWhiteNote = 120;  // C8  — momentary full-white flash
+constexpr int kBumpColorNote = 121;  // C#8 — momentary flash to the current primary hue
+constexpr int kFreezeNote    = 122;  // D8  — hold the current frame while held
 
 
 // ---- spot triggers (pitch 1..4) -----------------------------------------
@@ -344,19 +357,28 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
                  ColorFadeState* fade, double dtSeconds, float pixelDensity,
                  SelectionMask* sel) noexcept
 {
-    out.clear();
-    if (sel != nullptr)
-        sel->clear();
-
-    // ---- 1. Blackout short-circuit --------------------------------------
+    // ---- 1. Blackout / freeze short-circuits ----------------------------
+    // Blackout (pitch 0) is a hard kill and dominates everything, freeze
+    // included. Freeze holds the PREVIOUS frame: we return before clearing or
+    // recomputing, so `out` (and the selection mask) keep last block's values
+    // until freeze releases. (The processor's beat clock keeps running, so
+    // releasing freeze resumes in time with the song, not where it paused.)
     if (state.isActive (static_cast<std::uint8_t> (kBlackoutNote)))
     {
-        // Hard kill — also collapse any in-flight fade so releasing the
-        // blackout note resumes from black rather than mid-fade.
+        out.clear();
+        if (sel != nullptr)
+            sel->clear();
+        // Collapse any in-flight fade so releasing blackout resumes from black.
         if (fade != nullptr)
             fade->reset();
         return;
     }
+    if (state.isActive (static_cast<std::uint8_t> (kFreezeNote)))
+        return;   // hold the last composed frame (and selection) untouched
+
+    out.clear();
+    if (sel != nullptr)
+        sel->clear();
 
     // ---- 2. Palettes -----------------------------------------------------
     const auto primaryC   = pickColor (state, kPrimaryPaletteStart,   kSecondaryPaletteStart);
@@ -676,6 +698,55 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
         out.set (spot.blue(),   b);
         out.set (spot.white(),  w);
         out.set (spot.strobe(), 0.0f);
+    }
+
+    // ---- 9. Master bumps (global flash override) -------------------------
+    // Momentary full-rig flash played from the top of the keyboard: white
+    // (kBumpWhiteNote) or the current primary-palette hue (kBumpColorNote —
+    // raw hue at full saturation, white if no palette colour is held). The
+    // bump note's VELOCITY is the flash level. This OVERRIDES the composed
+    // frame (a clean flash reads as a hit; an additive HTP flash would just
+    // tint it) and ignores pixel density (a bump lights everything), but the
+    // master dims still scale it so the operator can ride the flash. White
+    // wins if both bumps are held.
+    const bool bumpWhite = state.isActive (static_cast<std::uint8_t> (kBumpWhiteNote));
+    const bool bumpColor = state.isActive (static_cast<std::uint8_t> (kBumpColorNote));
+    if (bumpWhite || bumpColor)
+    {
+        // The flash overrides the whole frame, so nothing is "armed but dark":
+        // drop any selection outline the structural pass may have flagged.
+        if (sel != nullptr)
+            sel->clear();
+
+        const auto& bn = state.get (static_cast<std::uint8_t> (bumpWhite ? kBumpWhiteNote : kBumpColorNote));
+        const float level = static_cast<float> (bn.velocity) / 127.0f;
+
+        const bool white = bumpWhite || primaryC.pitch < 0;   // white, or colour-bump with no colour held
+        const float cr = white ? 1.0f : primaryC.r;
+        const float cg = white ? 1.0f : primaryC.g;
+        const float cb = white ? 1.0f : primaryC.b;
+
+        for (int barIdx = 0; barIdx < kNumBars; ++barIdx)
+        {
+            const auto& bar = kBars[barIdx];
+            for (int pixel = 1; pixel <= bar.pixels; ++pixel)
+            {
+                const auto ch = bar.channelsFor (pixel);
+                out.set (ch[0], cr * level * ledMasterDim);
+                out.set (ch[1], cg * level * ledMasterDim);
+                out.set (ch[2], cb * level * ledMasterDim);
+            }
+        }
+        for (int s = 0; s < kNumSpots; ++s)
+        {
+            const auto& spot = kSpots[s];
+            out.set (spot.dimmer(), level * spotMasterDim);
+            out.set (spot.red(),    cr * level);
+            out.set (spot.green(),  cg * level);
+            out.set (spot.blue(),   cb * level);
+            out.set (spot.white(),  white ? level : 0.0f);
+            out.set (spot.strobe(), 0.0f);
+        }
     }
 }
 
