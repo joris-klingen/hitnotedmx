@@ -66,6 +66,14 @@ private:
 // for every audio block (DMX channels never inherit stale state from
 // a previous block). Channels outside the rig footprint are untouched.
 //
+// Master / global hits at the top of the keyboard are the exceptions to
+// "fully written each block":
+//   • Freeze (122) returns BEFORE the clear, so `out` holds the previous
+//     frame untouched while held (blackout still dominates freeze).
+//   • Bump-white (120) / bump-colour (121) run last and OVERRIDE the whole
+//     frame with a velocity-level flash (white, or the current primary hue);
+//     they ignore pixel density but still obey the master dims.
+//
 // `ledMasterDim` (0..1) scales every bar pixel's RGB output; the spot
 // fixtures' master intensity (their dimmer channel) is scaled by
 // `spotMasterDim`. Both default to 1.0 (no attenuation). Applying them

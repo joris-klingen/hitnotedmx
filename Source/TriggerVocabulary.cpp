@@ -10,6 +10,7 @@ namespace
 {
 constexpr int kSpotBarOctave = 0;    // blackout / spots / bars
 constexpr int kZonesStart    = 12;   // pixel zones + combs
+constexpr int kMasterStart   = 120;  // master / global hits (top of keyboard, octave 8)
 
 // A trigger column: labels occupy note offsets 0,1,2,… from `octaveStart`.
 Column trig (juce::String title, int octaveStart, std::vector<juce::String> labels)
@@ -63,6 +64,12 @@ std::vector<Column> build()
     c.push_back (pal ("Prim", kPrimaryPaletteStart + 12, 12));
     c.push_back (pal ("Sec",  kSecondaryPaletteStart,    0));
 
+    // Master / global hits — momentary "master" controls above the palette
+    // (flash white, flash the current colour, freeze the frame). These are
+    // not per-fixture triggers; computeDmx handles them as whole-rig overrides.
+    c.push_back (trig ("Master", kMasterStart,
+        { "Bump white", "Bump color", "Freeze" }));
+
     return c;
 }
 
@@ -82,6 +89,7 @@ juce::String prefixFor (const juce::String& title, const juce::String& label)
     if (title == "Breathes")   return "br";
     if (title == "Wild")       return "wd";
     if (title == "Multicolor") return "mc";
+    if (title == "Master")     return "ms";
     return {};
 }
 }  // namespace
