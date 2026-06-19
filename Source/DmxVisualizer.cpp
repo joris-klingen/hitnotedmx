@@ -56,8 +56,8 @@ void drawAddress (juce::Graphics& g, int address, int x, int topY, int fixtureW)
 }
 }
 
-DmxVisualizer::DmxVisualizer (const DmxValues& valuesRef)
-    : values (valuesRef)
+DmxVisualizer::DmxVisualizer (const DmxValues& valuesRef, const SelectionMask& selectionRef)
+    : values (valuesRef), selection (selectionRef)
 {
     setOpaque (true);
     lastFingerprint.fill (0);
@@ -211,8 +211,18 @@ void DmxVisualizer::rebuildCache()
             const int row = bar.pixels - pixel;  // pixel 1 at the bottom
             const int y0  = rowY (row);
             const int y1  = rowY (row + 1);
+            const int cellH = juce::jmax (1, y1 - y0 - 2);
             g.setColour (juce::Colour::fromRGB (toScreenByte (r), toScreenByte (gv), toScreenByte (b)));
-            g.fillRect (x, y0, barW, juce::jmax (1, y1 - y0 - 2));
+            g.fillRect (x, y0, barW, cellH);
+
+            // "Armed but unlit": a held selector covers this cell but nothing
+            // is lighting it. Show a grey outline so the operator sees the
+            // selection even though no DMX is sent for it.
+            if (selection.cell[static_cast<size_t> (barIdx)][static_cast<size_t> (pixel)])
+            {
+                g.setColour (juce::Colour (0xff6a6a6a));
+                g.drawRect (x, y0, barW, cellH, 1);
+            }
         }
 
         // Start DMX address, small, under the bar (flush with the pane bottom).
@@ -248,6 +258,11 @@ void DmxVisualizer::repaintIfChanged()
         current[i++] = toByte (values.get (spot.white()));
         current[i++] = toByte (values.get (spot.strobe()));
     }
+    // Selection outlines: the rig is black in the armed-but-unlit state, so the
+    // DMX bytes above don't capture a selection change — fingerprint it too.
+    for (int b = 0; b < kNumBars; ++b)
+        for (int p = 1; p <= kBars[b].pixels; ++p)
+            current[i++] = selection.cell[static_cast<size_t> (b)][static_cast<size_t> (p)] ? 1 : 0;
 
     if (current == lastFingerprint)
         return;

@@ -21,7 +21,9 @@ namespace hitnotedmx
 //
 //   Layer                    Velocity controls
 //   ──────────────────────   ───────────────────────────────────────────────
-//   Bar / pixel-zone select  Palette ROUTE: >= 64 → primary, < 64 → secondary
+//   Bar select               Per-bar BRIGHTNESS ceiling (velocity / 127) —
+//                            soft bar = dim rig, hard bar = full
+//   Pixel-zone select        Palette ROUTE: >= 64 → primary, < 64 → secondary
 //                            (kVelocityThreshold; see routeForVelocity)
 //   Chases (brightness)      TAIL length of the comet head — hard = long trail
 //   Wild (brightness)        Beat-synced SPEED division (127 = 1/16 … 0 = 1/1);
@@ -30,9 +32,9 @@ namespace hitnotedmx
 //                            patchy islands (breatheDensityMask); half speed
 //   Colour dynamics          SPEED of the recipe's animation — hard = faster;
 //                            EXCEPT VU meter: beat-locked, velocity → gain
-//   Palette colour notes     INTENSITY (scale) + colour-FADE duration — hard =
-//                            bright & instant, soft = dim & slow (pickColor /
-//                            advanceFade)
+//   Palette colour notes     Colour-FADE duration only — hard = instant snap,
+//                            soft = slow rise to FULL colour (advanceFade).
+//                            Brightness comes from the bar-selector layer.
 //
 // Spots and blackout ignore velocity. (When the C8 density / soft-edge note
 // controls land, velocity will set their intensity — see TODO.)
@@ -163,7 +165,7 @@ inline constexpr Route routeForVelocity (std::uint8_t vel)
 // The most-recently-started held note in the palette range wins. We also
 // report the winning pitch + velocity so the fade stage (see advanceFade)
 // can detect colour changes and derive the per-change fade duration.
-struct ColorPick { float r, g, b, intensity; int pitch; std::uint8_t velocity; };
+struct ColorPick { float r, g, b; int pitch; std::uint8_t velocity; };
 
 ColorPick pickColor (const MidiState& state,
                      int paletteStart,
@@ -186,11 +188,10 @@ ColorPick pickColor (const MidiState& state,
     });
 
     if (mostRecentPitch < 0)
-        return { 0.0f, 0.0f, 0.0f, 0.0f, -1, 0 };
+        return { 0.0f, 0.0f, 0.0f, -1, 0 };
 
     const auto c = paletteColorFor (paletteStart, mostRecentPitch - paletteStart);
-    const float intensity = static_cast<float> (mostRecentVel) / 127.0f;
-    return { c.r, c.g, c.b, intensity, mostRecentPitch, mostRecentVel };
+    return { c.r, c.g, c.b, mostRecentPitch, mostRecentVel };
 }
 
 // Longest linear colour fade, reached at velocity 1; velocity 127 snaps.
@@ -340,9 +341,12 @@ const std::array<std::array<float, kPixelsPerBar + 1>, kNumBars> kDensityRank = 
 
 void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
                  float ledMasterDim, float spotMasterDim,
-                 ColorFadeState* fade, double dtSeconds, float pixelDensity) noexcept
+                 ColorFadeState* fade, double dtSeconds, float pixelDensity,
+                 SelectionMask* sel) noexcept
 {
     out.clear();
+    if (sel != nullptr)
+        sel->clear();
 
     // ---- 1. Blackout short-circuit --------------------------------------
     if (state.isActive (static_cast<std::uint8_t> (kBlackoutNote)))
@@ -358,13 +362,15 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
     const auto primaryC   = pickColor (state, kPrimaryPaletteStart,   kSecondaryPaletteStart);
     const auto secondaryC = pickColor (state, kSecondaryPaletteStart, kSecondaryPaletteEnd);
 
-    // Target colours (palette colour scaled by note velocity = intensity).
-    const float tPriR = primaryC.r   * primaryC.intensity;
-    const float tPriG = primaryC.g   * primaryC.intensity;
-    const float tPriB = primaryC.b   * primaryC.intensity;
-    const float tSecR = secondaryC.r * secondaryC.intensity;
-    const float tSecG = secondaryC.g * secondaryC.intensity;
-    const float tSecB = secondaryC.b * secondaryC.intensity;
+    // Target colours at FULL intensity. A palette note's velocity drives only
+    // the fade duration (advanceFade), not brightness — so a soft note rises
+    // slowly to full colour. The brightness ceiling is the bar-selector layer.
+    const float tPriR = primaryC.r;
+    const float tPriG = primaryC.g;
+    const float tPriB = primaryC.b;
+    const float tSecR = secondaryC.r;
+    const float tSecG = secondaryC.g;
+    const float tSecB = secondaryC.b;
 
     float priR = tPriR, priG = tPriG, priB = tPriB;
     float secR = tSecR, secG = tSecG, secB = tSecB;
@@ -381,10 +387,10 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
     }
 
     // ---- 3. Bar layer ----------------------------------------------------
-    // For each bar, "highest-velocity utility note touching that bar wins
-    // the color route." Encoded as per-bar route + per-bar best-vel-so-far.
-    std::array<Route, kNumBars> barRoute   { Route::None, Route::None, Route::None, Route::None };
-    std::array<int,   kNumBars> barBestVel { -1, -1, -1, -1 };
+    // For each bar, the highest-velocity selector touching it sets the bar's
+    // BRIGHTNESS ceiling (velocity / 127). Bars no longer pick a colour route
+    // — that is the pixel-zone layer's job.
+    std::array<int, kNumBars> barBestVel { -1, -1, -1, -1 };
     bool barLayerHeld = false;
 
     state.forEachHeld ([&] (std::uint8_t pitch, const HeldNote& n)
@@ -393,16 +399,12 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
             return;
         barLayerHeld = true;
         const auto mask = kBarSelectorMask[pitch - kBarSelStart];
-        const auto route = routeForVelocity (n.velocity);
         for (int b = 0; b < kNumBars; ++b)
         {
             if (! (mask & (1u << b)))
                 continue;
             if (static_cast<int> (n.velocity) > barBestVel[b])
-            {
                 barBestVel[b] = n.velocity;
-                barRoute[b]   = route;
-            }
         }
     });
 
@@ -521,22 +523,31 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
     });
 
     // ---- 6b. White default ----------------------------------------------
-    // If the bars are being driven (a bar / pixel / dynamic trigger is held)
-    // but NO palette colour is selected, render full white — same as clicking
-    // a tile in the menu. Likewise default the secondary accent (used by soft-
-    // velocity selectors and the spot 'col' triggers) to white. Seed the fade
-    // state too, so a colour played next fades in from white rather than black.
-    const bool barLike = barLayerHeld || pixelLayerHeld || dynamicLayerHeld || strobeHeld;
-    if (barLike && primaryC.pitch < 0)
+    // A held DYNAMIC recipe or strobe with no palette colour renders full
+    // white — it's content that needs a colour to show through. Bar / zone
+    // SELECTORS no longer default to white: held alone they stay black on the
+    // rig, and the visualiser shows a grey selection outline instead (see the
+    // `selectorOnly` mask below). The secondary accent still whites-out for
+    // the spot 'col' triggers. Seed the fade state so a colour played next
+    // fades in from white rather than black.
+    const bool contentHeld = dynamicLayerHeld || strobeHeld;
+    if (contentHeld && primaryC.pitch < 0)
     {
         priR = priG = priB = 1.0f;
         if (fade != nullptr) { fade->primary.cur[0] = fade->primary.cur[1] = fade->primary.cur[2] = 1.0f; }
     }
-    if ((barLike || spotSec[0] || spotSec[1]) && secondaryC.pitch < 0)
+    if ((contentHeld || spotSec[0] || spotSec[1]) && secondaryC.pitch < 0)
     {
         secR = secG = secB = 1.0f;
         if (fade != nullptr) { fade->secondary.cur[0] = fade->secondary.cur[1] = fade->secondary.cur[2] = 1.0f; }
     }
+
+    // "Armed but unlit": a bar/zone selector is held but nothing lights the rig
+    // (no palette colour, no dynamic/strobe). The selected cells stay black on
+    // DMX; we flag them below so the visualiser can outline them in grey.
+    const bool selectorOnly = (barLayerHeld || pixelLayerHeld)
+                            && primaryC.pitch < 0 && secondaryC.pitch < 0
+                            && ! contentHeld;
 
     // ---- 7. Compose bars -------------------------------------------------
     const int nBars = kNumBars;
@@ -544,10 +555,13 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
     {
         const auto& bar = kBars[barIdx];
 
+        // Bar-selector velocity sets the per-bar brightness ceiling; an unheld
+        // bar (when the layer is active) stays dark, no layer held = full.
         const float barBrightness = barLayerHeld
-                                  ? (barRoute[barIdx] != Route::None ? 1.0f : 0.0f)
+                                  ? (barBestVel[barIdx] >= 0
+                                        ? static_cast<float> (barBestVel[barIdx]) / 127.0f
+                                        : 0.0f)
                                   : 1.0f;
-        const Route barR = barLayerHeld ? barRoute[barIdx] : Route::None;
 
         for (int pixel = 1; pixel <= bar.pixels; ++pixel)
         {
@@ -615,17 +629,20 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
             }
             else
             {
-                // Most-specific route wins; fall back to primary. Brightness
-                // dynamics don't route colour — they only modulate above.
-                Route route = pixR != Route::None ? pixR
-                            : barR != Route::None ? barR
-                            : Route::Primary;
+                // Zone route wins; otherwise primary. Bars no longer route
+                // colour, and brightness dynamics only modulate above.
+                Route route = pixR != Route::None ? pixR : Route::Primary;
 
                 const bool usePri = (route != Route::Secondary);
                 cr = usePri ? priR : secR;
                 cg = usePri ? priG : secG;
                 cb = usePri ? priB : secB;
             }
+
+            // Armed but unlit: in the selector-only state this in-region cell
+            // resolves to black — flag it for the visualiser's grey outline.
+            if (sel != nullptr && selectorOnly && cr <= 0.0f && cg <= 0.0f && cb <= 0.0f)
+                sel->cell[static_cast<size_t> (barIdx)][static_cast<size_t> (pixel)] = true;
 
             out.set (channels[0], cr * brightness * ledMasterDim);
             out.set (channels[1], cg * brightness * ledMasterDim);

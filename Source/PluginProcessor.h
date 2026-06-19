@@ -66,6 +66,10 @@ public:
     // is acceptable for a 30 Hz visualisation.
     const DmxValues& getDmxValues() const noexcept                    { return dmxValues; }
 
+    // Parallel "armed but unlit" preview mask, written by computeDmx alongside
+    // dmxValues and read by the visualiser to draw grey selection outlines.
+    const SelectionMask& getSelection() const noexcept                { return selection; }
+
     // UI state. Not stored in the parameter tree because they are not
     // host-automatable.
     bool blackout = false;
@@ -112,6 +116,7 @@ private:
     MidiLog    midiLog;
     MidiState  midiState;
     DmxValues  dmxValues;
+    SelectionMask selection;   // "armed but unlit" cells, for the visualiser
     ColorFadeState colorFade;  // persists colour-fade state across blocks
 
     // Preview injection. previewPitch[] is written by the GUI thread and

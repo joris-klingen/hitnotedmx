@@ -29,7 +29,7 @@ class DmxVisualizer : public juce::Component,
                       private juce::Timer
 {
 public:
-    explicit DmxVisualizer (const DmxValues& valuesRef);
+    DmxVisualizer (const DmxValues& valuesRef, const SelectionMask& selectionRef);
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -51,9 +51,11 @@ private:
     void rebuildCache();
 
     static constexpr int kFingerprintSize =
-        kNumBars * kPixelsPerBar * 3 + kNumSpots * 6;  // 228 bytes
+        kNumBars * kPixelsPerBar * 3 + kNumSpots * 6   // rig DMX bytes
+      + kNumBars * kPixelsPerBar;                       // + 1 selection byte/cell
 
-    const DmxValues& values;
+    const DmxValues&     values;
+    const SelectionMask& selection;
 
     juce::Image cachedImage;  // ARGB; fully covers the component bounds
     std::array<std::uint8_t, kFingerprintSize> lastFingerprint {};

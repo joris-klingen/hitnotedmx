@@ -5,6 +5,7 @@
 
 #include "EnttecProDmx.h"   // kDmxUniverseSize
 #include "MidiState.h"
+#include "Rig.h"            // kNumBars, kPixelsPerBar
 
 namespace hitnotedmx
 {
@@ -42,6 +43,19 @@ public:
 
 private:
     std::array<float, kSize> data {};
+};
+
+// Parallel to DmxValues: the on-screen "armed but unlit" preview. A cell is
+// true when a bar/zone selector is held over it but nothing is lighting it
+// (no palette colour, no dynamic/strobe) — computeDmx leaves the DMX black
+// there and the visualiser draws a grey selection outline instead. Never
+// affects DMX. Preallocated and reused; the composition pass never allocates.
+struct SelectionMask
+{
+    // [bar][pixel], pixel 1-based (index 0 unused) to match the rig.
+    std::array<std::array<bool, kPixelsPerBar + 1>, kNumBars> cell {};
+
+    void clear() noexcept { for (auto& b : cell) b.fill (false); }
 };
 
 // Compute per-channel DMX state at the given playhead time:
@@ -109,6 +123,6 @@ struct ColorFadeState
 void computeDmx (const MidiState& state, double tBeats, DmxValues& outValues,
                  float ledMasterDim = 1.0f, float spotMasterDim = 1.0f,
                  ColorFadeState* fade = nullptr, double dtSeconds = 0.0,
-                 float pixelDensity = 1.0f) noexcept;
+                 float pixelDensity = 1.0f, SelectionMask* selection = nullptr) noexcept;
 
 }  // namespace hitnotedmx

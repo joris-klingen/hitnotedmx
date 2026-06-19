@@ -151,7 +151,7 @@ void DimKnobLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int 
 }
 
 HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioProcessor& p)
-    : AudioProcessorEditor (&p), proc (p), dmxView (p.getDmxValues())
+    : AudioProcessorEditor (&p), proc (p), dmxView (p.getDmxValues(), p.getSelection())
 {
     // Flat & wide. The trigger menu is a transposed 12-row piano-roll grid,
     // so the visualiser height sets the minimum window height. Width fits the
