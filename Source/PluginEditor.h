@@ -22,6 +22,28 @@ public:
                            float rotaryEndAngle, juce::Slider&) override;
 };
 
+// Master-grid tiles: a fixed (non-auto-shrinking) font so every tile's label
+// is the same size regardless of length — JUCE's default fits text to width,
+// which made "Freeze" larger than "Bump white". Wraps to 2 lines if needed.
+class MasterTileLookAndFeel : public juce::LookAndFeel_V4
+{
+public:
+    juce::Font getTextButtonFont (juce::TextButton&, int) override
+    {
+        return juce::Font (juce::FontOptions (10.5f));
+    }
+
+    void drawButtonText (juce::Graphics& g, juce::TextButton& b, bool, bool) override
+    {
+        g.setFont (juce::FontOptions (10.5f));
+        const auto id = b.getToggleState() ? juce::TextButton::textColourOnId
+                                           : juce::TextButton::textColourOffId;
+        g.setColour (b.findColour (id).withMultipliedAlpha (b.isEnabled() ? 1.0f : 0.4f));
+        g.drawFittedText (b.getButtonText(), b.getLocalBounds().reduced (2, 0),
+                          juce::Justification::centred, 2, 1.0f);  // fixed font, no h-shrink
+    }
+};
+
 // Far-right "drag MIDI" tile. Latch a trigger set in the menu, then drag this
 // out to Finder / Ableton to drop a one-bar .mid holding the selected notes —
 // the same held chord the live preview plays. Inert while nothing is latched.
@@ -79,6 +101,16 @@ private:
     juce::TextButton initNamesButton   { "Init. names" };   // install the named rack
     juce::TextButton showClipsButton   { "Show clips" };    // open the demo-clips folder
     juce::Label      deviceStatusLabel;
+
+    // Left-pane master-note grid (2 rows × 4 cols). The wired tiles latch the
+    // "Master" notes (bump white / bump color / freeze) into the live preview —
+    // the same notes as before, relocated out of the trigger menu; the rest are
+    // placeholders for the planned speed / crossfade / extra master notes.
+    static constexpr int kMasterCols  = 4;
+    static constexpr int kMasterRows  = 2;
+    static constexpr int kMasterTiles = kMasterCols * kMasterRows;
+    std::array<juce::TextButton, kMasterTiles> masterTiles;
+    MasterTileLookAndFeel masterTileLnf;
     juce::TextEditor midiLogView;
     DmxVisualizer    dmxView;
 
@@ -90,7 +122,10 @@ private:
     juce::Slider clickVelSlider { juce::Slider::LinearVertical, juce::Slider::TextBoxBelow };
     juce::Label  clickVelLabel;
     MidiDragTile midiDragTile;
-    std::vector<int> latchedPitches;   // mirrors the menu's latched set, for the drag
+    std::vector<int> latchedPitches;   // combined latched set (menu + master), for the drag
+    std::vector<int> menuLatched;      // latched from the trigger menu
+    std::vector<int> masterLatched;    // latched from the left-pane master tiles
+    void pushPreview();                // push menuLatched ∪ masterLatched to the preview
 
     // Master-dim knobs, attached to the host-automatable parameters so
     // the on-screen control, host automation, and any MIDI-mapped knob

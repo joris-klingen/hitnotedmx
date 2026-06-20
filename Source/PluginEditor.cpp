@@ -1,5 +1,8 @@
 #include "PluginEditor.h"
 #include "Showcase.h"
+#include "TriggerVocabulary.h"   // vocab::columns() — master-grid notes/labels
+
+#include <algorithm>             // std::find
 
 #include <juce_audio_basics/juce_audio_basics.h>
 
@@ -168,6 +171,45 @@ HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioP
     initNamesButton.setTooltip ("Install the named trigger rack into your Ableton User Library (MIDI Effects)");
     showClipsButton.setTooltip ("Write the demo clips to ~/Music/HitNoteDmx Showcase and open it in Finder");
 
+    // Left-pane master-note grid. The note numbers + labels come straight from
+    // the "Master" vocabulary column (single source of truth) so the tiles can
+    // never drift from the mapping; the tiles latch their note into the live
+    // preview at the VEL velocity. Cells past the column are disabled
+    // placeholders for the planned speed / crossfade master notes.
+    std::vector<std::pair<int, juce::String>> masterNotes;   // (pitch, label)
+    for (const auto& vc : vocab::columns())
+        if (vc.title == "Master")
+            for (int i = 0; i < static_cast<int> (vc.labels.size()); ++i)
+                masterNotes.push_back ({ vc.octaveStart + i, vc.labels[static_cast<size_t> (i)] });
+
+    for (int i = 0; i < kMasterTiles; ++i)
+    {
+        auto& t = masterTiles[static_cast<size_t> (i)];
+        t.setLookAndFeel (&masterTileLnf);   // uniform fixed-size label font
+        if (i < static_cast<int> (masterNotes.size()))
+        {
+            const int pitch = masterNotes[static_cast<size_t> (i)].first;
+            t.setButtonText (masterNotes[static_cast<size_t> (i)].second);
+            t.setClickingTogglesState (true);
+            t.setColour (juce::TextButton::buttonColourId,   juce::Colour (0xff2a2a2a));
+            t.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xff39c6c0));
+            t.onClick = [this, pitch, btn = &t]
+            {
+                const bool on = btn->getToggleState();
+                const auto it = std::find (masterLatched.begin(), masterLatched.end(), pitch);
+                if (on && it == masterLatched.end())        masterLatched.push_back (pitch);
+                else if (! on && it != masterLatched.end()) masterLatched.erase (it);
+                pushPreview();
+            };
+        }
+        else
+        {
+            t.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff222222));
+            t.setEnabled (false);   // placeholder for the planned speed / crossfade notes
+        }
+        addAndMakeVisible (t);
+    }
+
     deviceStatusLabel.setJustificationType (juce::Justification::centredLeft);
     deviceStatusLabel.setColour (juce::Label::textColourId, juce::Colours::white);
     deviceStatusLabel.setFont (juce::FontOptions (11.0f));
@@ -182,15 +224,7 @@ HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioP
     {
         s.setLookAndFeel (&knobLnf);
         s.setColour (juce::Slider::rotarySliderFillColourId, accent);
-        s.setColour (juce::Slider::textBoxTextColourId, juce::Colours::white);
-        s.setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-        s.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 64, 18);
-
-        // Display as a percentage rather than 0.00..1.00.
-        s.textFromValueFunction = [] (double v)
-            { return juce::String (juce::roundToInt (v * 100.0)) + "%"; };
-        s.valueFromTextFunction = [] (const juce::String& t)
-            { return t.getDoubleValue() / 100.0; };
+        s.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);   // no % readout
         addAndMakeVisible (s);
 
         lab.setText (text, juce::dontSendNotification);
@@ -215,9 +249,8 @@ HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioP
     addAndMakeVisible (triggerMenu);
     triggerMenu.onSelectionChanged = [this] (const std::vector<int>& pitches)
     {
-        proc.setPreviewPitches (pitches);
-        latchedPitches = pitches;        // mirror for the MIDI-drag tile
-        midiDragTile.repaint();          // reflect the new count / enabled state
+        menuLatched = pitches;
+        pushPreview();                   // combine with the master tiles, then preview
     };
 
     // Far-right pane: click-velocity slider — sets the velocity that previewed
@@ -273,6 +306,22 @@ HitNoteDmxAudioProcessorEditor::~HitNoteDmxAudioProcessorEditor()
     ledDimSlider.setLookAndFeel (nullptr);
     spotDimSlider.setLookAndFeel (nullptr);
     densitySlider.setLookAndFeel (nullptr);
+    for (auto& t : masterTiles)
+        t.setLookAndFeel (nullptr);
+}
+
+// Combine the two latch sources (trigger menu + left-pane master tiles) into
+// the one preview set the processor plays, and mirror it for the MIDI-drag tile.
+void HitNoteDmxAudioProcessorEditor::pushPreview()
+{
+    std::vector<int> all = menuLatched;
+    for (const int p : masterLatched)
+        if (std::find (all.begin(), all.end(), p) == all.end())
+            all.push_back (p);
+
+    proc.setPreviewPitches (all);
+    latchedPitches = all;
+    midiDragTile.repaint();
 }
 
 void HitNoteDmxAudioProcessorEditor::paint (juce::Graphics& g)
@@ -331,37 +380,55 @@ void HitNoteDmxAudioProcessorEditor::resized()
     // Content inset inside the left card (no card title any more).
     auto leftContent = leftPaneArea.reduced (10).withTrimmedTop (4);
 
-    // ---- LEFT pane: knobs (top) + MIDI log (middle) + utility buttons (bottom) ----
+    // ---- LEFT pane: master settings (knobs) + master-note grid (top),
+    //      one row of utility buttons + status (bottom), MIDI log in between ----
     {
-        auto knobRow = leftContent.removeFromTop (108);
+        // Master settings, top-left, a touch smaller than before (no % readout).
+        auto knobRow = leftContent.removeFromTop (66);
         const int colW = knobRow.getWidth() / 3;
         auto place = [] (juce::Rectangle<int> col, juce::Label& lab, juce::Slider& s)
         {
-            lab.setBounds (col.removeFromTop (16));
+            lab.setBounds (col.removeFromTop (14));
             s.setBounds (col);
         };
         place (knobRow.removeFromLeft (colW), ledDimLabel,  ledDimSlider);
         place (knobRow.removeFromLeft (colW), spotDimLabel, spotDimSlider);
         place (knobRow,                       densityLabel, densitySlider);
-        leftContent.removeFromTop (8);
+        leftContent.removeFromTop (6);
 
-        // Utility controls pinned to the bottom: two rows of paired buttons
-        // (Connect/Blackout, then Init names/Show clips) + a status line. The
-        // MIDI log takes whatever is left in between.
-        auto controls = leftContent.removeFromBottom (90);
-        auto pairRow = [] (juce::Rectangle<int> row, juce::Button& left, juce::Button& right)
+        // Master-note grid: 2 rows × 4 cols of tiles (no header).
         {
-            const int half = row.getWidth() / 2;
-            left.setBounds  (row.removeFromLeft  (half - 3));
-            right.setBounds (row.removeFromRight (half - 3));
-        };
-        pairRow (controls.removeFromTop (28), connectUsbButton, blackoutButton);
-        controls.removeFromTop (5);
-        pairRow (controls.removeFromTop (28), initNamesButton, showClipsButton);
-        controls.removeFromTop (5);
+            auto grid = leftContent.removeFromTop (kMasterRows * 24);
+            const int rowH = grid.getHeight() / kMasterRows;
+            for (int r = 0; r < kMasterRows; ++r)
+            {
+                auto row = grid.removeFromTop (rowH);
+                const int cw = row.getWidth() / kMasterCols;
+                for (int col = 0; col < kMasterCols; ++col)
+                {
+                    auto cell = (col == kMasterCols - 1) ? row : row.removeFromLeft (cw);
+                    masterTiles[static_cast<size_t> (r * kMasterCols + col)].setBounds (cell.reduced (1));
+                }
+            }
+        }
+        leftContent.removeFromTop (6);
+
+        // Utility controls pinned to the bottom: one row of three buttons
+        // (Connect / Blackout / Init names) + the ENTTEC status line. The MIDI
+        // log takes whatever is left in between. (Show clips lives in the
+        // far-right pane, above the MIDI-drag tile.)
+        auto controls = leftContent.removeFromBottom (46);
+        {
+            auto row = controls.removeFromTop (24);
+            const int cw = row.getWidth() / 3;
+            connectUsbButton.setBounds (row.removeFromLeft (cw).reduced (1, 0));
+            blackoutButton.setBounds   (row.removeFromLeft (cw).reduced (1, 0));
+            initNamesButton.setBounds  (row.reduced (1, 0));
+        }
+        controls.removeFromTop (4);
         deviceStatusLabel.setBounds (controls);  // remaining (~18px, one line)
 
-        leftContent.removeFromBottom (8);
+        leftContent.removeFromBottom (6);
         midiLogView.setBounds (leftContent);
     }
 
@@ -372,13 +439,16 @@ void HitNoteDmxAudioProcessorEditor::resized()
     // The menu fills the whole card; its rows scale to the height.
     triggerMenu.setBounds (rightPaneArea.reduced (4));
 
-    // ---- FAR-RIGHT pane: click-velocity slider (top) + drag placeholder ----
+    // ---- FAR-RIGHT pane: click-velocity slider (top), then Show clips, then
+    //      the MIDI-drag tile (the two showcase/export actions sit together) ----
     {
         auto content = extraPaneArea.reduced (2, 6);
-        auto top = content.removeFromTop (content.getHeight() * 6 / 10);
+        auto top = content.removeFromTop (content.getHeight() * 5 / 10);
         clickVelLabel.setBounds (top.removeFromTop (16));
         clickVelSlider.setBounds (top.reduced (0, 2));
-        content.removeFromTop (8);
+        content.removeFromTop (6);
+        showClipsButton.setBounds (content.removeFromTop (34));
+        content.removeFromTop (6);
         midiDragTile.setBounds (content);
     }
 }

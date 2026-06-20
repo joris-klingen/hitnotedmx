@@ -58,6 +58,12 @@ void TriggerMenu::buildModel()
     // data. Here we just turn it into the display model (tiles + swatches).
     for (const auto& vc : vocab::columns())
     {
+        // The "Master" notes are still in the vocabulary (named in the rack,
+        // frozen in the mapping) but are played from the editor's left-pane
+        // master grid, not this menu — skip the column here.
+        if (vc.title == "Master")
+            continue;
+
         Column c;
         c.octave  = vc.octaveStart / 12 - 2;
         c.palette = vc.palette;
