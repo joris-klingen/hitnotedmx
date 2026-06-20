@@ -7,11 +7,16 @@ architecture lives in [STATUS.md](STATUS.md).
 
 1. **Recipe-bank refinement (Blocks + Disco)** — all 48 recipes are tuned on
    hardware and read well; the remaining work is focused on **Blocks** and
-   **Disco** (Multicolor), which still want improvement. Also folds in the
-   **VU-meter low-level** feel: only the *lowest* LED should dim at very low
-   signal (today a fixed 2-pixel floor with a fast per-beat release). Speeds,
-   band widths, gaussian radii and hue ramps are single-constant tweaks in
-   `Recipes.cpp`. See #2 for an automated quality net to make this tuning safer.
+   **Disco** (Multicolor), which still want improvement:
+   - **Disco — time it to the beat.** Today it free-runs; lock its colour
+     switches / motion to the beat grid so it pulses in time with the song.
+   - **Blocks — redesign.** The current pattern doesn't land; rethink the look
+     (block size, movement, colour logic), not just tweak constants.
+   Also folds in the **VU-meter low-level** feel: only the *lowest* LED should
+   dim at very low signal (today a fixed 2-pixel floor with a fast per-beat
+   release). Speeds, band widths, gaussian radii and hue ramps are
+   single-constant tweaks in `Recipes.cpp`. See #2 for an automated quality net
+   to make this tuning safer.
 
 2. **Render tool — recipe quality net, clip preview, hitdesigndmx integration**
    — an offline render tool (sibling to `mapping-tool`) reusing the real
@@ -68,17 +73,19 @@ architecture lives in [STATUS.md](STATUS.md).
    Default stays mask — the current behaviour. Useful with the layering workflow
    (multicolor wash + a chase riding on top without darkening the rest).
 
-5. **Master hits → move to the editor left pane; give the bump a decay tail**
-   *(discuss implementation first)* — relocate bump-white / bump-color / freeze
-   out of the trigger menu's **Master column** and into the **editor left pane,
-   below the master-dim / density knobs** (buttons/controls, not MIDI notes).
-   Removing them from the vocabulary **frees notes 120–122 again**, so it needs a
-   **mapping re-freeze** (v3) and the C8 modifier notes in #3/#4 reclaim the room.
-   - **Bump envelope:** attack always **instant (0)** — snap to full on the hit —
-     followed by a **decay tail whose length scales with velocity** (harder hit =
+5. **Master controls — bump decay tail + fade-to-black** *(discuss first)* — the
+   left-pane master grid shipped (bump-white / bump-color / freeze stayed real
+   notes, just relocated out of the menu — no re-freeze). Open work:
+   - **Bump decay tail.** Attack always **instant (0)** — snap to full on the hit
+     — then a **decay tail whose length scales with velocity** (harder hit =
      longer ring-out), replacing today's hard on/off gate. Needs persistent
      envelope state in the processor (the note is gone after release), advanced
      by `dtSeconds` each block like `ColorFadeState`.
+   - **Fade-to-black master.** A whole-rig fade to black — like a bump but *to
+     black* — that also catches the **Multicolor** recipes (they emit their own
+     RGB and bypass the palette colour-fade today, so a palette "black" note
+     can't fade them out). Same override-the-frame mechanism as bump (section 9),
+     ramped down instead of flashed up; shares the decay-tail envelope above.
 
 6. **Playable note controls — speed + crossfade** *(discuss implementation first)*
    — note-driven modifiers in the same playable family as the C8 controls in #3:
@@ -89,9 +96,17 @@ architecture lives in [STATUS.md](STATUS.md).
      wash↔dynamic — semantics TBD) and how it composes with the existing layers.
    Both: decide note placement, velocity meaning, and compositing before building.
 
+7. **Auto-program / hands-free mode** *(discuss first)* — for nights when there's
+   no time to play the rig live. A **semi-active generative sequence** that cycles
+   chase / block / breathe on its own — enough motion to feel alive, not a busy
+   show. Plus a minimal fallback for the most rushed case: **solid single-colour
+   mode** where the note **velocity picks the colour**. Open: what arms it (a
+   master note / a button), how busy "semi-active" should be, whether it follows
+   the beat clock, and how it yields the moment live triggers come in.
+
 ## Bigger / longer-term
 
-7. **Abstract the rig so it can change (add fixtures)** — today the rig is
+8. **Abstract the rig so it can change (add fixtures)** — today the rig is
    hardcoded everywhere: `Rig.h` fixes 4 bars × 18 pixels + 2 spots and the
    228-channel patch, the note vocabulary and recipes assume exactly that
    geometry (bar/zone masks are 18-bit, spots are a fixed pair), and the
