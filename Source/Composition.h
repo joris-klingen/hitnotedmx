@@ -119,10 +119,11 @@ struct BumpState
 //     frame untouched while held (blackout still dominates freeze).
 //   • Bump-white (120) / bump-colour (121) crossfade the whole frame toward
 //     white / the current primary hue (velocity = brightness): instant attack,
-//     release tail back to the scene. To-black (122) fades the whole frame
-//     (Multicolor included) to black while held and back to the scene on
-//     release; from-black (123) snaps to instant black on its onset then fades
-//     up to the scene. To/from-black glide at their OWN note's velocity; the
+//     release tail back to the scene. To-black (122) fades the BARS (Multicolor
+//     included; spots excluded — only blackout C-2 takes the spots dark) to
+//     black while held and back to the scene on release; from-black (123) snaps
+//     to instant black on its onset then fades up. To/from-black glide at their
+//     OWN note's velocity; the
 //     Release note (125) velocity sets the bump-tail rate (both 127 = instant,
 //     0 = one bar). See BumpState / section 9.
 //

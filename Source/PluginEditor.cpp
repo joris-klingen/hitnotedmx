@@ -199,6 +199,7 @@ HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioP
         if (full == "To black")   return "to blk";
         if (full == "From black") return "fr blk";
         if (full == "Release")    return "rel";
+        if (full == "Speed")      return "spd";
         return full;   // Freeze
     };
 
@@ -206,7 +207,9 @@ HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioP
     {
         auto& t = masterTiles[static_cast<size_t> (i)];
         t.setLookAndFeel (&masterTileLnf);   // menu-cell style: title left, note right
-        if (i < static_cast<int> (masterNotes.size()))
+        const bool wired = i < static_cast<int> (masterNotes.size())
+                        && masterNotes[static_cast<size_t> (i)].second.isNotEmpty();
+        if (wired)
         {
             const int  pitch = masterNotes[static_cast<size_t> (i)].first;
             const auto full  = masterNotes[static_cast<size_t> (i)].second;
@@ -214,9 +217,9 @@ HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioP
             t.getProperties().set ("note", noteLabel (pitch));   // shown right-aligned
 
             // Bumps + the to/from-black fades are MOMENTARY (held while pressed,
-            // released on mouse-up so the tail / fade proceeds). Release and
-            // Freeze are latched settings/states.
-            if (full == "Release" || full == "Freeze")
+            // released on mouse-up so the tail / fade proceeds). Release, Freeze
+            // and Speed are latched settings/states.
+            if (full == "Release" || full == "Freeze" || full == "Speed")
             {
                 t.setClickingTogglesState (true);
                 t.onClick = [this, pitch, btn = &t] { setMasterNote (pitch, btn->getToggleState()); };
@@ -229,7 +232,7 @@ HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioP
         }
         else
         {
-            t.setEnabled (false);   // placeholder for the planned speed / crossfade notes
+            t.setEnabled (false);   // empty slot (F#8 gap) / future control
         }
         addAndMakeVisible (t);
     }

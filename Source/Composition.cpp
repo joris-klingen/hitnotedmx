@@ -25,13 +25,18 @@ namespace hitnotedmx
 //                            soft bar = dim rig, hard bar = full
 //   Pixel-zone select        Palette ROUTE: >= 64 → primary, < 64 → secondary
 //                            (kVelocityThreshold; see routeForVelocity)
-//   Chases (brightness)      TAIL length of the comet head — hard = long trail
+//   Chases (brightness)      TAIL length of the comet head — hard = long trail.
+//                            UNDER global speed (G8): picks the palette ROUTE
+//                            (>=64 primary, <64 secondary) instead.
 //   Wild (brightness)        Beat-synced SPEED division (127 = 1/16 … 0 = 1/1);
-//                            sparkle / sparkle_few stay free-running
+//                            sparkle / sparkle_few stay free-running. UNDER G8:
+//                            picks the palette ROUTE instead.
 //   Breathes (brightness)    DENSITY — soft carves the shape into smooth
 //                            patchy islands (breatheDensityMask); half speed
 //   Colour dynamics          SPEED of the recipe's animation — hard = faster;
 //                            EXCEPT VU meter: beat-locked, velocity → gain
+//   Speed (G8)               GLOBAL recipe-speed multiplier for all four banks
+//                            (vel 64 = 1x, exp ~0.25x..4x); see section 5
 //   Palette colour notes     Colour-FADE duration only — hard = instant snap,
 //                            soft = slow rise to FULL colour (advanceFade).
 //                            Brightness comes from the bar-selector layer.
@@ -69,6 +74,7 @@ constexpr int kToBlackNote   = 122;  // D8  — fade the whole rig to black (at 
 constexpr int kFromBlackNote = 123;  // D#8 — fade the whole rig back up from black
 constexpr int kFreezeNote    = 124;  // E8  — hold the current frame while held
 constexpr int kReleaseNote   = 125;  // F8  — velocity sets bump-tail / fade rate (127 = instant, 0 = 1 bar)
+constexpr int kSpeedNote     = 127;  // G8  — velocity = global recipe-speed multiplier (vel 64 = 1x)
 
 
 // ---- spot triggers (pitch 1..4) -----------------------------------------
@@ -501,6 +507,19 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
     bool dynamicLayerHeld = false;
     bool strobeHeld = false;   // drives the rig white so the driver shutter has something to chop
 
+    // Global speed (G8 / kSpeedNote): its velocity scales EVERY recipe's rate —
+    // exponential, vel 64 = 1x, 0 ≈ 0.25x, 127 ≈ 4x. Absent = 1x (default speeds).
+    // While it's held, chase/wild velocity is freed from tail/beat-speed duty and
+    // instead picks the palette ROUTE (>=64 primary, <64 secondary); the
+    // strongest (highest-velocity) chase/wild wins. dynRoute feeds the colour
+    // resolution in the bar compose below.
+    const bool  speedHeld = state.isActive (static_cast<std::uint8_t> (kSpeedNote));
+    const float gMult = speedHeld
+        ? std::pow (2.0f, (static_cast<float> (state.get (static_cast<std::uint8_t> (kSpeedNote)).velocity) - 64.0f) / 32.0f)
+        : 1.0f;
+    Route dynRoute    = Route::None;
+    int   dynRouteVel = -1;
+
     state.forEachHeld ([&] (std::uint8_t pitch, const HeldNote& n)
     {
         const float vel = static_cast<float> (n.velocity);
@@ -522,11 +541,27 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
             dynamicLayerHeld = true;
             if (nRecipes >= kMaxRecipes)
                 return;
+            // Under global speed, chase/wild velocity picks the colour route
+            // (not tail/beat-speed); track the strongest one.
+            const bool routeByVel = speedHeld && (isWildPitch (pitch) || isChasesPitch (pitch));
+            if (routeByVel && static_cast<int> (n.velocity) > dynRouteVel)
+            {
+                dynRouteVel = n.velocity;
+                dynRoute    = routeForVelocity (n.velocity);
+            }
+
             if (isWildPitch (pitch))
             {
-                const bool freeRunning = (pitch == kSparklePitch || pitch == kSparkleFewPitch);
-                const float tScale = freeRunning ? std::clamp (vel / 64.0f, 0.2f, 2.5f)
-                                                 : wildBeatSpeed (n.velocity);
+                // Beat-speed from velocity normally; under global speed the
+                // velocity is the colour route, so run at a neutral 1x (the
+                // global multiplier sets the actual rate).
+                float tScale = 1.0f;
+                if (! speedHeld)
+                {
+                    const bool freeRunning = (pitch == kSparklePitch || pitch == kSparkleFewPitch);
+                    tScale = freeRunning ? std::clamp (vel / 64.0f, 0.2f, 2.5f)
+                                         : wildBeatSpeed (n.velocity);
+                }
                 recipes[nRecipes++] = { fn, kSpeed, tScale, 0.0f, 0.0f };
             }
             else if (isBreathesPitch (pitch))
@@ -535,8 +570,8 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
                 const float seed = static_cast<float> (std::fmod (n.startBeat * 0.61803398875 + 0.5, 1.0));
                 recipes[nRecipes++] = { fn, kDensity, tScale, vel / 127.0f, seed };
             }
-            else
-                recipes[nRecipes++] = { fn, kTail, 1.0f, vel / 127.0f, 0.0f };   // tail (hard = long comet)
+            else   // chases — velocity is tail length, or (under global speed) the colour route
+                recipes[nRecipes++] = { fn, kTail, 1.0f, speedHeld ? 0.5f : vel / 127.0f, 0.0f };
         }
         else if (isColorDynPitch (pitch))
         {
@@ -591,6 +626,8 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
                             && ! contentHeld;
 
     // ---- 7. Compose bars -------------------------------------------------
+    // Global-speed-scaled beat clock for the recipes (gMult = 1 when G8 absent).
+    const double recipeBeats = tBeats * static_cast<double> (gMult);
     const int nBars = kNumBars;
     for (int barIdx = 0; barIdx < nBars; ++barIdx)
     {
@@ -627,7 +664,7 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
                 for (int i = 0; i < nRecipes; ++i)
                 {
                     const auto& r = recipes[i];
-                    const double rt = tBeats * static_cast<double> (r.tScale);
+                    const double rt = recipeBeats * static_cast<double> (r.tScale);
                     float v;
                     if (r.mode == kDensity)      // Breathes: carve into smooth islands
                         v = r.fn (rt, barIdx, pixel, bar.pixels, nBars, 0.0f)
@@ -661,7 +698,7 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
                 for (int i = 0; i < nColorRecipes; ++i)
                 {
                     const auto& r = colorRecipes[i];   // tScale = speed (1 for VU, beat-locked)
-                    const auto c = r.fn (tBeats * static_cast<double> (r.tScale),
+                    const auto c = r.fn (recipeBeats * static_cast<double> (r.tScale),
                                          barIdx, pixel, bar.pixels, nBars, r.param);
                     cr = std::max (cr, c.r);
                     cg = std::max (cg, c.g);
@@ -670,9 +707,11 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
             }
             else
             {
-                // Zone route wins; otherwise primary. Bars no longer route
-                // colour, and brightness dynamics only modulate above.
-                Route route = pixR != Route::None ? pixR : Route::Primary;
+                // Zone route wins; then a chase/wild's own route under global
+                // speed (dynRoute); otherwise primary. Bars don't route colour.
+                Route route = pixR     != Route::None ? pixR
+                            : dynRoute != Route::None ? dynRoute
+                            : Route::Primary;
 
                 const bool usePri = (route != Route::Secondary);
                 cr = usePri ? priR : secR;
@@ -802,14 +841,15 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
             const float colG = colWhite ? 1.0f : primaryC.g;
             const float colB = colWhite ? 1.0f : primaryC.b;
 
-            // One channel: scene → colour flash → white flash → fade-to-black.
-            // At full bump coverage this matches a hard override; the tail and
-            // the fade both crossfade smoothly.
-            auto blend = [=] (float v, float tCol, float tWhite) -> float
+            // Bump flash overlay only: scene → colour flash → white flash.
+            // The to/from-black dip (× (1 - kCut)) is applied to the BARS on
+            // top; the SPOTS ignore it on purpose — only the blackout note (C-2)
+            // takes the spots dark, so a fade-to-black can drop the rig while
+            // the singer spots stay lit. Spots still take the bump flash.
+            auto flash = [=] (float v, float tCol, float tWhite) -> float
             {
                 v = v * (1.0f - cCov) + tCol   * cBri * cCov;
-                v = v * (1.0f - wCov) + tWhite * wBri * wCov;
-                return v * (1.0f - kCut);
+                return v * (1.0f - wCov) + tWhite * wBri * wCov;
             };
 
             for (int barIdx = 0; barIdx < kNumBars; ++barIdx)
@@ -818,19 +858,19 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
                 for (int pixel = 1; pixel <= bar.pixels; ++pixel)
                 {
                     const auto ch = bar.channelsFor (pixel);
-                    out.set (ch[0], blend (out.get (ch[0]), colR * ledMasterDim, ledMasterDim));
-                    out.set (ch[1], blend (out.get (ch[1]), colG * ledMasterDim, ledMasterDim));
-                    out.set (ch[2], blend (out.get (ch[2]), colB * ledMasterDim, ledMasterDim));
+                    out.set (ch[0], flash (out.get (ch[0]), colR * ledMasterDim, ledMasterDim) * (1.0f - kCut));
+                    out.set (ch[1], flash (out.get (ch[1]), colG * ledMasterDim, ledMasterDim) * (1.0f - kCut));
+                    out.set (ch[2], flash (out.get (ch[2]), colB * ledMasterDim, ledMasterDim) * (1.0f - kCut));
                 }
             }
             for (int s = 0; s < kNumSpots; ++s)
             {
                 const auto& spot = kSpots[s];
-                out.set (spot.dimmer(), blend (out.get (spot.dimmer()), spotMasterDim, spotMasterDim));
-                out.set (spot.red(),    blend (out.get (spot.red()),    colR, 1.0f));
-                out.set (spot.green(),  blend (out.get (spot.green()),  colG, 1.0f));
-                out.set (spot.blue(),   blend (out.get (spot.blue()),   colB, 1.0f));
-                out.set (spot.white(),  blend (out.get (spot.white()),  0.0f, 1.0f));
+                out.set (spot.dimmer(), flash (out.get (spot.dimmer()), spotMasterDim, spotMasterDim));
+                out.set (spot.red(),    flash (out.get (spot.red()),    colR, 1.0f));
+                out.set (spot.green(),  flash (out.get (spot.green()),  colG, 1.0f));
+                out.set (spot.blue(),   flash (out.get (spot.blue()),   colB, 1.0f));
+                out.set (spot.white(),  flash (out.get (spot.white()),  0.0f, 1.0f));
             }
         }
     }

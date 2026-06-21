@@ -69,9 +69,10 @@ std::vector<Column> build()
     // frame (velocity = brightness); "To black" / "From black" glide the rig to
     // black and back; "Release" velocity sets how fast the bump tails decay and
     // the to/from-black fades glide (127 = instant, 0 = one bar); Freeze holds
-    // the current frame while held.
+    // the current frame while held; "Speed" (G8) velocity is the global recipe-
+    // speed multiplier. F#8 (126, empty label) is left free between them.
     c.push_back (trig ("Master", kMasterStart,
-        { "Bump white", "Bump color", "To black", "From black", "Freeze", "Release" }));
+        { "Bump white", "Bump color", "To black", "From black", "Freeze", "Release", "", "Speed" }));
 
     return c;
 }
@@ -120,6 +121,8 @@ juce::String chainName (int note)
         if (idx >= 0 && idx < static_cast<int> (col.labels.size()))
         {
             const auto& label = col.labels[static_cast<size_t> (idx)];
+            if (label.isEmpty())
+                return "-";   // explicit gap within a column (e.g. F#8 in Master)
             const auto pre = prefixFor (col.title, label);
             return pre.isEmpty() ? label : pre + " " + label;
         }
