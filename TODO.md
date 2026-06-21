@@ -47,56 +47,38 @@ architecture lives in [STATUS.md](STATUS.md).
      the result. **Pin before either side depends on it:** the CLI signature, the
      manifest schema, and the image/GIF layout.
 
-3. **Pixel-density: re-roll + C8 note controls** *(later)* — the density gate
+3. **Pixel-density: re-roll + soft-edges note** *(later)* — the density gate
    drops pixels in a per-bar-even random order (avalanche hash, rank-normalised
    per bar; the old diagonal banding is fixed). Open work:
    - **Re-roll the thinned subset on each colour-note trigger** so the dropped
      pixels change with the colour instead of staying fixed all show (more
      life); reseed the per-bar rank from the winning colour note.
-   - **Expose density + a new "soft edges (2D)" feather as note options in the
-     C8 octave** (now **123–127** — 120–122 are the Master column: bump-white /
-     bump-color / freeze), velocity = intensity — playable from MIDI like the
-     other layers, alongside the existing automatable density knob.
-   - Consider **speed utilities** in the same top octave (e.g. slow a held
-     breathe down for long swells) — same playable-modifier idea.
+   - **Expose density + a new "soft edges (2D)" feather as playable notes**
+     (velocity = intensity), alongside the existing automatable density knob.
+     Placement note: octave 8 is now full of master controls (120–125 + 127
+     Speed); only F#8 (126) is free there, so these need a home — 126, or
+     another octave.
    - Confirm the scatter looks right on the physical bars; decide the default.
 
 4. **Chase blend mode — "on top" vs mask (toggle note, top octave)** *(later)* —
    today a held brightness dynamic (chase/breathe/wild) acts as a **mask**: lit
    pixels are the *intersection* of the bar/zone/dynamic layers, so a chase
    carves its moving shape OUT of the colour wash (the dynamic value multiplies
-   the per-pixel brightness in `computeDmx`'s bar compose). Add a **toggle note
-   in the C8 modifier octave** (alongside the density / soft-edges / speed
-   modifiers in #3) that switches the dynamic layer to **additive / on-top**: the
+   the per-pixel brightness in `computeDmx`'s bar compose). Add a **playable
+   toggle note** (a free note — see #3 on placement; octave 8 is now master
+   controls) that switches the dynamic layer to **additive / on-top**: the
    base wash stays full and the chase *adds* its lit pixels over it instead of
    gating them (a `max`/add at the dynamic-mask step instead of the multiply).
    Default stays mask — the current behaviour. Useful with the layering workflow
    (multicolor wash + a chase riding on top without darkening the rest).
 
-5. **Master controls — bump decay tail + fade-to-black** *(discuss first)* — the
-   left-pane master grid shipped (bump-white / bump-color / freeze stayed real
-   notes, just relocated out of the menu — no re-freeze). Open work:
-   - **Bump decay tail.** Attack always **instant (0)** — snap to full on the hit
-     — then a **decay tail whose length scales with velocity** (harder hit =
-     longer ring-out), replacing today's hard on/off gate. Needs persistent
-     envelope state in the processor (the note is gone after release), advanced
-     by `dtSeconds` each block like `ColorFadeState`.
-   - **Fade-to-black master.** A whole-rig fade to black — like a bump but *to
-     black* — that also catches the **Multicolor** recipes (they emit their own
-     RGB and bypass the palette colour-fade today, so a palette "black" note
-     can't fade them out). Same override-the-frame mechanism as bump (section 9),
-     ramped down instead of flashed up; shares the decay-tail envelope above.
+5. **Crossfade control note** *(discuss implementation first)* — a note that
+   crossfades (primary↔secondary, or wash↔dynamic — semantics TBD) and how it
+   composes with the existing layers. Decide note placement (octave 8 is nearly
+   full — see #3), velocity meaning, and compositing before building. (The
+   speed half of this idea shipped as the G8 global-speed note.)
 
-6. **Playable note controls — speed + crossfade** *(discuss implementation first)*
-   — note-driven modifiers in the same playable family as the C8 controls in #3:
-   - **Speed control** — a note whose velocity scales the global animation clock
-     (slow held breathes for long swells, or speed chases up). Supersedes the
-     speed-utility bullet in #3.
-   - **Crossfade control** — a note that crossfades (primary↔secondary, or
-     wash↔dynamic — semantics TBD) and how it composes with the existing layers.
-   Both: decide note placement, velocity meaning, and compositing before building.
-
-7. **Auto-program / hands-free mode** *(discuss first)* — for nights when there's
+6. **Auto-program / hands-free mode** *(discuss first)* — for nights when there's
    no time to play the rig live. A **semi-active generative sequence** that cycles
    chase / block / breathe on its own — enough motion to feel alive, not a busy
    show. Plus a minimal fallback for the most rushed case: **solid single-colour
@@ -106,7 +88,7 @@ architecture lives in [STATUS.md](STATUS.md).
 
 ## Bigger / longer-term
 
-8. **Abstract the rig so it can change (add fixtures)** — today the rig is
+7. **Abstract the rig so it can change (add fixtures)** — today the rig is
    hardcoded everywhere: `Rig.h` fixes 4 bars × 18 pixels + 2 spots and the
    228-channel patch, the note vocabulary and recipes assume exactly that
    geometry (bar/zone masks are 18-bit, spots are a fixed pair), and the
@@ -121,14 +103,18 @@ architecture lives in [STATUS.md](STATUS.md).
 
 ## Recently shipped (see STATUS.md for detail)
 
-- **Master / global hits (bump-white, bump-color, freeze)** — three "master"
-  controls on the top free notes (C8 octave: 120/121/122), above the palette.
-  Bump-white / bump-color override the whole rig with a velocity-level flash
-  (white, or the current primary hue); freeze holds the previous frame while
-  held (blackout still dominates; beat clock keeps running). Whole-rig
-  overrides in `computeDmx`, not per-fixture triggers. Mapping re-frozen at
-  **v2** (`mappings/v2.tsv`); new "Master" vocabulary column (prefix `ms`).
-  Built + `mapping-frozen` green.
+- **Master / global controls (octave 8) + global speed** — a left-pane master
+  grid of whole-rig controls (`computeDmx` section 9, state in `BumpState`):
+  **bump-white / bump-color** (momentary flash, velocity = brightness, instant
+  attack + a velocity-set release tail back to the scene); **to/from-black**
+  (a fade pair — to-black auto-releases, from-black is an instant-black reveal;
+  glide at their own note velocity; bars only, spots ignore it — only blackout
+  C-2 darkens spots); **Release** (bump-tail rate); **Freeze** (holds the frame
+  *and pauses the animation clock*, so it resumes seamlessly); **Speed (G8)**
+  (global recipe-speed multiplier; while held, chase/wild velocity picks the
+  palette route). Tiles styled like menu cells, bump/fade tiles momentary,
+  Release/Freeze/Speed latch. Mapping re-frozen **v2 → v6**; "Master" vocab
+  column (prefix `ms`). Built + `mapping-frozen` green.
 - **Pixel zones re-authored natively for 18 pixels** — the nine zones used a
   `zone(z) = bit(2z-1)|bit(2z)` helper (a fossil of the old 9-pixel rig) while
   Even/Odd/Thirds were native; now all of `kPixelStaticMask` is authored in real
