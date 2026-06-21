@@ -191,7 +191,7 @@ void HitNoteDmxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     const float spotDim = spotMasterDimParam != nullptr ? spotMasterDimParam->load() : 1.0f;
     const float density = pixelDensityParam  != nullptr ? pixelDensityParam->load()  : 1.0f;
     const double dtSeconds = static_cast<double> (buffer.getNumSamples()) / sampleRate_;
-    computeDmx (midiState, blockStartBeat, dmxValues, ledDim, spotDim, &colorFade, dtSeconds, density, &selection);
+    computeDmx (midiState, blockStartBeat, dmxValues, ledDim, spotDim, &colorFade, dtSeconds, density, &selection, &bumpState);
 
     // Strobe is a global shutter applied in the DMX driver's send loop (so
     // it stays locked to the output clock and free of audio-block jitter).

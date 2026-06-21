@@ -118,6 +118,7 @@ private:
     DmxValues  dmxValues;
     SelectionMask selection;   // "armed but unlit" cells, for the visualiser
     ColorFadeState colorFade;  // persists colour-fade state across blocks
+    BumpState  bumpState;      // persists bump release-tail envelopes across blocks
 
     // Preview injection. previewPitch[] is written by the GUI thread and
     // read on the audio thread; -1 = empty slot. appliedPreview is

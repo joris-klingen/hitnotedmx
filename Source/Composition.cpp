@@ -35,8 +35,10 @@ namespace hitnotedmx
 //   Palette colour notes     Colour-FADE duration only — hard = instant snap,
 //                            soft = slow rise to FULL colour (advanceFade).
 //                            Brightness comes from the bar-selector layer.
-//   Master hits (bumps)      Flash LEVEL — velocity scales the whole-rig
-//                            override (white / current colour); see section 9
+//   Master controls          Bump-white / bump-colour velocity = flash
+//                            brightness. Release velocity = bump-tail and
+//                            to/from-black fade rate (127 = instant, 0 = 1 bar).
+//                            To/from-black & freeze ignore velocity. Section 9
 //
 // Spots, blackout and freeze ignore velocity. The C8 octave's remaining free
 // notes (123–127) are pencilled in for density / soft-edge / speed note
@@ -63,7 +65,10 @@ constexpr int kBlackoutNote = 0;
 // (the mapping-frozen test guards the labels, not these behaviour constants).
 constexpr int kBumpWhiteNote = 120;  // C8  — momentary full-white flash
 constexpr int kBumpColorNote = 121;  // C#8 — momentary flash to the current primary hue
-constexpr int kFreezeNote    = 122;  // D8  — hold the current frame while held
+constexpr int kToBlackNote   = 122;  // D8  — fade the whole rig to black (at the release rate)
+constexpr int kFromBlackNote = 123;  // D#8 — fade the whole rig back up from black
+constexpr int kFreezeNote    = 124;  // E8  — hold the current frame while held
+constexpr int kReleaseNote   = 125;  // F8  — velocity sets bump-tail / fade rate (127 = instant, 0 = 1 bar)
 
 
 // ---- spot triggers (pitch 1..4) -----------------------------------------
@@ -355,25 +360,39 @@ const std::array<std::array<float, kPixelsPerBar + 1>, kNumBars> kDensityRank = 
 void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
                  float ledMasterDim, float spotMasterDim,
                  ColorFadeState* fade, double dtSeconds, float pixelDensity,
-                 SelectionMask* sel) noexcept
+                 SelectionMask* sel, BumpState* bump) noexcept
 {
     // ---- 1. Blackout / freeze short-circuits ----------------------------
     // Blackout (pitch 0) is a hard kill and dominates everything, freeze
-    // included. Freeze holds the PREVIOUS frame: we return before clearing or
-    // recomputing, so `out` (and the selection mask) keep last block's values
-    // until freeze releases. (The processor's beat clock keeps running, so
-    // releasing freeze resumes in time with the song, not where it paused.)
+    // included.
     if (state.isActive (static_cast<std::uint8_t> (kBlackoutNote)))
     {
         out.clear();
         if (sel != nullptr)
             sel->clear();
-        // Collapse any in-flight fade so releasing blackout resumes from black.
+        // Collapse any in-flight fade / bump tail so releasing blackout resumes
+        // from black rather than mid-effect.
         if (fade != nullptr)
             fade->reset();
+        if (bump != nullptr)
+            bump->reset();
         return;
     }
-    if (state.isActive (static_cast<std::uint8_t> (kFreezeNote)))
+
+    // Freeze (124) pauses the animation clock and holds the PREVIOUS frame: we
+    // advance `animBeats` only on non-frozen blocks, rewrite `tBeats` to it, and
+    // return early while held — so the recipes (and bump tails, all beat-driven)
+    // continue from exactly where they froze rather than jumping ahead.
+    const bool frozen = state.isActive (static_cast<std::uint8_t> (kFreezeNote));
+    if (bump != nullptr)
+    {
+        if (! bump->haveRaw)   bump->animBeats = tBeats;
+        else if (! frozen)     bump->animBeats += std::max (0.0, tBeats - bump->lastRaw);
+        bump->lastRaw = tBeats;
+        bump->haveRaw = true;
+        tBeats = bump->animBeats;   // everything downstream runs on the paused clock
+    }
+    if (frozen)
         return;   // hold the last composed frame (and selection) untouched
 
     out.clear();
@@ -700,52 +719,99 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
         out.set (spot.strobe(), 0.0f);
     }
 
-    // ---- 9. Master bumps (global flash override) -------------------------
-    // Momentary full-rig flash played from the top of the keyboard: white
-    // (kBumpWhiteNote) or the current primary-palette hue (kBumpColorNote —
-    // raw hue at full saturation, white if no palette colour is held). The
-    // bump note's VELOCITY is the flash level. This OVERRIDES the composed
-    // frame (a clean flash reads as a hit; an additive HTP flash would just
-    // tint it) and ignores pixel density (a bump lights everything), but the
-    // master dims still scale it so the operator can ride the flash. White
-    // wins if both bumps are held.
-    const bool bumpWhite = state.isActive (static_cast<std::uint8_t> (kBumpWhiteNote));
-    const bool bumpColor = state.isActive (static_cast<std::uint8_t> (kBumpColorNote));
-    if (bumpWhite || bumpColor)
+    // ---- 9. Master controls (flash bumps + to/from-black fade) -----------
+    // Whole-rig overrides from the top of the keyboard:
+    //   • bump white / colour — crossfade the rig toward white or the current
+    //     primary hue (velocity = flash brightness). Instant attack; on release
+    //     a tail decays back to the *scene* (not to black), so a flash over a
+    //     wash settles back into it.
+    //   • to / from black — a master fade fader: "to black" glides the whole
+    //     rig (Multicolor recipes included) down to black, "from black" glides
+    //     it back up to the scene.
+    // The "Release" note's velocity sets both the bump tails and the fade glide
+    // rate (127 = instant, 0 = one bar). State lives in `bump`, advanced in
+    // beat-time so the timing is tempo-relative.
+    if (bump != nullptr)
     {
-        // The flash overrides the whole frame, so nothing is "armed but dark":
-        // drop any selection outline the structural pass may have flagged.
-        if (sel != nullptr)
-            sel->clear();
+        const double dBeats = bump->haveLast ? std::max (0.0, tBeats - bump->lastBeats) : 0.0;
+        bump->lastBeats = tBeats;
+        bump->haveLast  = true;
 
-        const auto& bn = state.get (static_cast<std::uint8_t> (bumpWhite ? kBumpWhiteNote : kBumpColorNote));
-        const float level = static_cast<float> (bn.velocity) / 127.0f;
+        const bool  relHeld  = state.isActive (static_cast<std::uint8_t> (kReleaseNote));
+        const float relVel   = relHeld
+            ? static_cast<float> (state.get (static_cast<std::uint8_t> (kReleaseNote)).velocity)
+            : 127.0f;
+        const float relBeats = (1.0f - relVel / 127.0f) * 4.0f;   // vel 0 = 1 bar (4 beats)
+        const float rate     = (relBeats <= 0.0f) ? 1.0f : static_cast<float> (dBeats) / relBeats;
 
-        const bool white = bumpWhite || primaryC.pitch < 0;   // white, or colour-bump with no colour held
-        const float cr = white ? 1.0f : primaryC.r;
-        const float cg = white ? 1.0f : primaryC.g;
-        const float cb = white ? 1.0f : primaryC.b;
-
-        for (int barIdx = 0; barIdx < kNumBars; ++barIdx)
+        // Bump flashes: instant attack, decay on release at the release rate.
+        auto advance = [&] (BumpState::Env& e, int note)
         {
-            const auto& bar = kBars[barIdx];
-            for (int pixel = 1; pixel <= bar.pixels; ++pixel)
+            if (state.isActive (static_cast<std::uint8_t> (note)))
             {
-                const auto ch = bar.channelsFor (pixel);
-                out.set (ch[0], cr * level * ledMasterDim);
-                out.set (ch[1], cg * level * ledMasterDim);
-                out.set (ch[2], cb * level * ledMasterDim);
+                e.level  = 1.0f;   // instant attack
+                e.amount = static_cast<float> (state.get (static_cast<std::uint8_t> (note)).velocity) / 127.0f;
             }
-        }
-        for (int s = 0; s < kNumSpots; ++s)
+            else if (e.level > 0.0f)
+            {
+                e.level = (relBeats <= 0.0f) ? 0.0f : std::max (0.0f, e.level - rate);
+            }
+        };
+        advance (bump->white,  kBumpWhiteNote);
+        advance (bump->colour, kBumpColorNote);
+
+        // To/from-black fader: the latest direction note sets the target; the
+        // level glides toward it at the release rate. Output is scaled by
+        // (1 - blackLevel) below.
+        if (state.isActive (static_cast<std::uint8_t> (kToBlackNote)))        bump->blackTarget = 1.0f;
+        else if (state.isActive (static_cast<std::uint8_t> (kFromBlackNote))) bump->blackTarget = 0.0f;
+        if (bump->blackLevel < bump->blackTarget) bump->blackLevel = std::min (bump->blackTarget, bump->blackLevel + rate);
+        else                                      bump->blackLevel = std::max (bump->blackTarget, bump->blackLevel - rate);
+
+        const float cCov = bump->colour.level, cBri = bump->colour.amount;
+        const float wCov = bump->white.level,  wBri = bump->white.amount;
+        const float kCut = bump->blackLevel;   // fade-to-black dim factor 0..1
+
+        if (cCov > 0.0f || wCov > 0.0f || kCut > 0.0f)
         {
-            const auto& spot = kSpots[s];
-            out.set (spot.dimmer(), level * spotMasterDim);
-            out.set (spot.red(),    cr * level);
-            out.set (spot.green(),  cg * level);
-            out.set (spot.blue(),   cb * level);
-            out.set (spot.white(),  white ? level : 0.0f);
-            out.set (spot.strobe(), 0.0f);
+            if (sel != nullptr)
+                sel->clear();
+
+            const bool  colWhite = primaryC.pitch < 0;   // colour-bump, no colour held = white
+            const float colR = colWhite ? 1.0f : primaryC.r;
+            const float colG = colWhite ? 1.0f : primaryC.g;
+            const float colB = colWhite ? 1.0f : primaryC.b;
+
+            // One channel: scene → colour flash → white flash → fade-to-black.
+            // At full bump coverage this matches a hard override; the tail and
+            // the fade both crossfade smoothly.
+            auto blend = [=] (float v, float tCol, float tWhite) -> float
+            {
+                v = v * (1.0f - cCov) + tCol   * cBri * cCov;
+                v = v * (1.0f - wCov) + tWhite * wBri * wCov;
+                return v * (1.0f - kCut);
+            };
+
+            for (int barIdx = 0; barIdx < kNumBars; ++barIdx)
+            {
+                const auto& bar = kBars[barIdx];
+                for (int pixel = 1; pixel <= bar.pixels; ++pixel)
+                {
+                    const auto ch = bar.channelsFor (pixel);
+                    out.set (ch[0], blend (out.get (ch[0]), colR * ledMasterDim, ledMasterDim));
+                    out.set (ch[1], blend (out.get (ch[1]), colG * ledMasterDim, ledMasterDim));
+                    out.set (ch[2], blend (out.get (ch[2]), colB * ledMasterDim, ledMasterDim));
+                }
+            }
+            for (int s = 0; s < kNumSpots; ++s)
+            {
+                const auto& spot = kSpots[s];
+                out.set (spot.dimmer(), blend (out.get (spot.dimmer()), spotMasterDim, spotMasterDim));
+                out.set (spot.red(),    blend (out.get (spot.red()),    colR, 1.0f));
+                out.set (spot.green(),  blend (out.get (spot.green()),  colG, 1.0f));
+                out.set (spot.blue(),   blend (out.get (spot.blue()),   colB, 1.0f));
+                out.set (spot.white(),  blend (out.get (spot.white()),  0.0f, 1.0f));
+            }
         }
     }
 }

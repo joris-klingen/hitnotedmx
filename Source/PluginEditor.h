@@ -22,25 +22,85 @@ public:
                            float rotaryEndAngle, juce::Slider&) override;
 };
 
-// Master-grid tiles: a fixed (non-auto-shrinking) font so every tile's label
-// is the same size regardless of length — JUCE's default fits text to width,
-// which made "Freeze" larger than "Bump white". Wraps to 2 lines if needed.
+// Master-grid tiles, styled to match the trigger-menu cells: a rounded tile
+// (blue when latched, grey idle) with the trigger TITLE left-aligned and its
+// MIDI NOTE name (stashed in the "note" property, e.g. "D#-8") right-aligned.
 class MasterTileLookAndFeel : public juce::LookAndFeel_V4
 {
 public:
-    juce::Font getTextButtonFont (juce::TextButton&, int) override
+    void drawButtonBackground (juce::Graphics& g, juce::Button& b,
+                               const juce::Colour&, bool over, bool down) override
     {
-        return juce::Font (juce::FontOptions (10.5f));
+        const bool active = b.getToggleState() || down;   // latched OR pressed (momentary)
+        auto c = ! b.isEnabled() ? juce::Colour (0xff262626)
+                 : active        ? juce::Colour (0xff3a6ea5)
+                                 : juce::Colour (0xff333333);
+        if (b.isEnabled() && over && ! active) c = c.brighter (0.08f);
+        g.setColour (c);
+        g.fillRoundedRectangle (b.getLocalBounds().toFloat().reduced (0.5f), 3.0f);
     }
 
+    void drawButtonText (juce::Graphics& g, juce::TextButton& b, bool, bool down) override
+    {
+        const bool on = b.getToggleState() || down;
+        const float a  = b.isEnabled() ? 1.0f : 0.4f;
+        auto r = b.getLocalBounds().reduced (4, 0);
+
+        g.setFont (juce::FontOptions (8.5f));
+        const auto note = b.getProperties()["note"].toString();
+        if (note.isNotEmpty())
+        {
+            auto noteArea = r.removeFromRight (24);   // reserve the right slice
+            g.setColour ((on ? juce::Colour (0xffd7e3f0) : juce::Colour (0xff7790a6))
+                           .withMultipliedAlpha (a));
+            g.drawText (note, noteArea, juce::Justification::centredRight);
+        }
+        g.setColour ((on ? juce::Colours::white : juce::Colour (0xff9fbedd)).withMultipliedAlpha (a));
+        g.drawFittedText (b.getButtonText(), r, juce::Justification::centredLeft, 1, 0.7f);
+    }
+};
+
+// Draws a folder glyph centred on a button instead of its text — for the
+// narrow far-right "Show clips" button, where the label gets truncated to
+// nonsense. The button's tooltip still carries the meaning.
+class FolderIconLookAndFeel : public juce::LookAndFeel_V4
+{
+public:
     void drawButtonText (juce::Graphics& g, juce::TextButton& b, bool, bool) override
     {
-        g.setFont (juce::FontOptions (10.5f));
-        const auto id = b.getToggleState() ? juce::TextButton::textColourOnId
-                                           : juce::TextButton::textColourOffId;
-        g.setColour (b.findColour (id).withMultipliedAlpha (b.isEnabled() ? 1.0f : 0.4f));
-        g.drawFittedText (b.getButtonText(), b.getLocalBounds().reduced (2, 0),
-                          juce::Justification::centred, 2, 1.0f);  // fixed font, no h-shrink
+        const auto area = b.getLocalBounds().toFloat();
+        const float w = juce::jmin (area.getWidth(), area.getHeight()) * 0.6f;
+        const float h = w * 0.8f;
+        const float x = area.getCentreX() - w * 0.5f;
+        const float y = area.getCentreY() - h * 0.5f;
+        const float tabW = w * 0.42f;
+        const float tabH = h * 0.28f;
+
+        g.setColour (b.findColour (juce::TextButton::textColourOffId)
+                       .withMultipliedAlpha (b.isEnabled() ? 1.0f : 0.4f));
+        g.fillRoundedRectangle (x, y, tabW, tabH + 2.0f, 1.5f);   // top-left tab
+        g.fillRoundedRectangle (x, y + tabH, w, h - tabH, 2.0f);  // folder body
+    }
+};
+
+// A master-grid tile that can be momentary: when `momentary`, it fires
+// onMomentary(true) on press and onMomentary(false) on release (so a bump is
+// held while the mouse is down and decays on release), instead of latching.
+class MasterTileButton : public juce::TextButton
+{
+public:
+    bool momentary = false;
+    std::function<void (bool down)> onMomentary;
+
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        juce::TextButton::mouseDown (e);
+        if (momentary && isEnabled() && onMomentary) onMomentary (true);
+    }
+    void mouseUp (const juce::MouseEvent& e) override
+    {
+        juce::TextButton::mouseUp (e);
+        if (momentary && isEnabled() && onMomentary) onMomentary (false);
     }
 };
 
@@ -109,8 +169,10 @@ private:
     static constexpr int kMasterCols  = 4;
     static constexpr int kMasterRows  = 2;
     static constexpr int kMasterTiles = kMasterCols * kMasterRows;
-    std::array<juce::TextButton, kMasterTiles> masterTiles;
+    std::array<MasterTileButton, kMasterTiles> masterTiles;
     MasterTileLookAndFeel masterTileLnf;
+    void setMasterNote (int pitch, bool on);   // add/remove from the preview set
+    FolderIconLookAndFeel folderLnf;   // icon for the narrow "Show clips" button
     juce::TextEditor midiLogView;
     DmxVisualizer    dmxView;
 

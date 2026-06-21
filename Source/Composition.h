@@ -58,6 +58,38 @@ struct SelectionMask
     void clear() noexcept { for (auto& b : cell) b.fill (false); }
 };
 
+// Persistent state for the master controls, advanced in beat-time by computeDmx
+// (analogous to ColorFadeState — the notes are gone after release, so the
+// envelopes have to live across blocks).
+//   • white / colour: momentary flash bumps. `level` snaps to 1 on note-on
+//     (instant attack) and decays to 0 on release over the "Release" time;
+//     `amount` is the captured velocity (flash brightness).
+//   • blackLevel / blackTarget: the to/from-black master fader. "To black"
+//     sets the target to 1, "From black" to 0; `blackLevel` glides toward it
+//     at the same Release rate. Output is scaled by (1 - blackLevel).
+// Pass nullptr to disable the master controls (e.g. the offline render tool).
+struct BumpState
+{
+    struct Env { float level = 0.0f; float amount = 0.0f; };
+    Env white, colour;
+    float blackLevel  = 0.0f;   // 0 = scene, 1 = full black
+    float blackTarget = 0.0f;
+
+    // Animation clock that PAUSES while freeze is held, so releasing freeze
+    // continues exactly from the frozen frame (rather than jumping to where the
+    // song moved on to). `animBeats` advances by the raw beat delta only on
+    // non-frozen blocks; computeDmx runs the recipes + bump tails on it.
+    double animBeats = 0.0;
+    double lastRaw   = 0.0;     // last raw tBeats seen (for the freeze delta)
+    bool   haveRaw   = false;
+
+    double lastBeats = 0.0;     // last animBeats seen by the bump-tail delta
+    bool   haveLast  = false;
+
+    // Clears the transient flash tails; the to/from-black fade level persists.
+    void reset() noexcept { white = colour = Env {}; haveLast = false; }
+};
+
 // Compute per-channel DMX state at the given playhead time:
 //
 //   1. If the blackout pitch (0, C-2) is held, all channels are 0.
@@ -82,11 +114,14 @@ struct SelectionMask
 //
 // Master / global hits at the top of the keyboard are the exceptions to
 // "fully written each block":
-//   • Freeze (122) returns BEFORE the clear, so `out` holds the previous
+//   • Freeze (124) returns BEFORE the clear, so `out` holds the previous
 //     frame untouched while held (blackout still dominates freeze).
-//   • Bump-white (120) / bump-colour (121) run last and OVERRIDE the whole
-//     frame with a velocity-level flash (white, or the current primary hue);
-//     they ignore pixel density but still obey the master dims.
+//   • Bump-white (120) / bump-colour (121) crossfade the whole frame toward
+//     white / the current primary hue (velocity = brightness): instant attack,
+//     release tail back to the scene. To-black (122) / from-black (123) glide
+//     the whole frame (Multicolor included) down to black and back up. The
+//     Release note (125) velocity sets the tail / glide rate (127 = instant,
+//     0 = one bar). See BumpState / section 9.
 //
 // `ledMasterDim` (0..1) scales every bar pixel's RGB output; the spot
 // fixtures' master intensity (their dimmer channel) is scaled by
@@ -131,6 +166,7 @@ struct ColorFadeState
 void computeDmx (const MidiState& state, double tBeats, DmxValues& outValues,
                  float ledMasterDim = 1.0f, float spotMasterDim = 1.0f,
                  ColorFadeState* fade = nullptr, double dtSeconds = 0.0,
-                 float pixelDensity = 1.0f, SelectionMask* selection = nullptr) noexcept;
+                 float pixelDensity = 1.0f, SelectionMask* selection = nullptr,
+                 BumpState* bump = nullptr) noexcept;
 
 }  // namespace hitnotedmx

@@ -170,6 +170,7 @@ HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioP
     blackoutButton.setClickingTogglesState (true);
     initNamesButton.setTooltip ("Install the named trigger rack into your Ableton User Library (MIDI Effects)");
     showClipsButton.setTooltip ("Write the demo clips to ~/Music/HitNoteDmx Showcase and open it in Finder");
+    showClipsButton.setLookAndFeel (&folderLnf);   // folder icon — label won't fit the narrow pane
 
     // Left-pane master-note grid. The note numbers + labels come straight from
     // the "Master" vocabulary column (single source of truth) so the tiles can
@@ -182,29 +183,52 @@ HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioP
             for (int i = 0; i < static_cast<int> (vc.labels.size()); ++i)
                 masterNotes.push_back ({ vc.octaveStart + i, vc.labels[static_cast<size_t> (i)] });
 
+    // MIDI note name, hyphenated octave (note 0 = C-2), matching the tile spec.
+    auto noteLabel = [] (int pitch)
+    {
+        static const char* kLetters[12] = { "C", "C#", "D", "D#", "E", "F",
+                                            "F#", "G", "G#", "A", "A#", "B" };
+        return juce::String (kLetters[pitch % 12]) + "-" + juce::String (pitch / 12 - 2);
+    };
+
+    // Compact tile labels — the full names stay in the vocabulary (rack/mapping).
+    auto tileLabel = [] (const juce::String& full) -> juce::String
+    {
+        if (full == "Bump white") return "bmp wh";
+        if (full == "Bump color") return "bmp cl";
+        if (full == "To black")   return "to blk";
+        if (full == "From black") return "fr blk";
+        if (full == "Release")    return "rel";
+        return full;   // Freeze
+    };
+
     for (int i = 0; i < kMasterTiles; ++i)
     {
         auto& t = masterTiles[static_cast<size_t> (i)];
-        t.setLookAndFeel (&masterTileLnf);   // uniform fixed-size label font
+        t.setLookAndFeel (&masterTileLnf);   // menu-cell style: title left, note right
         if (i < static_cast<int> (masterNotes.size()))
         {
-            const int pitch = masterNotes[static_cast<size_t> (i)].first;
-            t.setButtonText (masterNotes[static_cast<size_t> (i)].second);
-            t.setClickingTogglesState (true);
-            t.setColour (juce::TextButton::buttonColourId,   juce::Colour (0xff2a2a2a));
-            t.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xff39c6c0));
-            t.onClick = [this, pitch, btn = &t]
+            const int  pitch = masterNotes[static_cast<size_t> (i)].first;
+            const auto full  = masterNotes[static_cast<size_t> (i)].second;
+            t.setButtonText (tileLabel (full));
+            t.getProperties().set ("note", noteLabel (pitch));   // shown right-aligned
+
+            // Bumps + the to/from-black fades are MOMENTARY (held while pressed,
+            // released on mouse-up so the tail / fade proceeds). Release and
+            // Freeze are latched settings/states.
+            if (full == "Release" || full == "Freeze")
             {
-                const bool on = btn->getToggleState();
-                const auto it = std::find (masterLatched.begin(), masterLatched.end(), pitch);
-                if (on && it == masterLatched.end())        masterLatched.push_back (pitch);
-                else if (! on && it != masterLatched.end()) masterLatched.erase (it);
-                pushPreview();
-            };
+                t.setClickingTogglesState (true);
+                t.onClick = [this, pitch, btn = &t] { setMasterNote (pitch, btn->getToggleState()); };
+            }
+            else
+            {
+                t.momentary = true;
+                t.onMomentary = [this, pitch] (bool down) { setMasterNote (pitch, down); };
+            }
         }
         else
         {
-            t.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff222222));
             t.setEnabled (false);   // placeholder for the planned speed / crossfade notes
         }
         addAndMakeVisible (t);
@@ -306,8 +330,18 @@ HitNoteDmxAudioProcessorEditor::~HitNoteDmxAudioProcessorEditor()
     ledDimSlider.setLookAndFeel (nullptr);
     spotDimSlider.setLookAndFeel (nullptr);
     densitySlider.setLookAndFeel (nullptr);
+    showClipsButton.setLookAndFeel (nullptr);
     for (auto& t : masterTiles)
         t.setLookAndFeel (nullptr);
+}
+
+// Add or remove a master-tile note from the left-pane latch set, then push.
+void HitNoteDmxAudioProcessorEditor::setMasterNote (int pitch, bool on)
+{
+    const auto it = std::find (masterLatched.begin(), masterLatched.end(), pitch);
+    if (on && it == masterLatched.end())        masterLatched.push_back (pitch);
+    else if (! on && it != masterLatched.end()) masterLatched.erase (it);
+    pushPreview();
 }
 
 // Combine the two latch sources (trigger menu + left-pane master tiles) into

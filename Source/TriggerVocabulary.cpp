@@ -64,11 +64,14 @@ std::vector<Column> build()
     c.push_back (pal ("Prim", kPrimaryPaletteStart + 12, 12));
     c.push_back (pal ("Sec",  kSecondaryPaletteStart,    0));
 
-    // Master / global hits — momentary "master" controls above the palette
-    // (flash white, flash the current colour, freeze the frame). These are
-    // not per-fixture triggers; computeDmx handles them as whole-rig overrides.
+    // Master / global controls above the palette. Not per-fixture triggers;
+    // computeDmx handles them as whole-rig overrides. The bumps flash the whole
+    // frame (velocity = brightness); "To black" / "From black" glide the rig to
+    // black and back; "Release" velocity sets how fast the bump tails decay and
+    // the to/from-black fades glide (127 = instant, 0 = one bar); Freeze holds
+    // the current frame while held.
     c.push_back (trig ("Master", kMasterStart,
-        { "Bump white", "Bump color", "Freeze" }));
+        { "Bump white", "Bump color", "To black", "From black", "Freeze", "Release" }));
 
     return c;
 }

@@ -16,7 +16,7 @@ rather than reconstructing the answer from constants spread across files:
 
 - **Concern → file** — the per-layer table in [STATUS.md](STATUS.md) maps every
   layer (rig, palette, recipes, driver, editor …) to its file(s). Start there.
-- **What a note does / which notes are free** — [`mappings/v2.tsv`](mappings/v2.tsv),
+- **What a note does / which notes are free** — [`mappings/v5.tsv`](mappings/v5.tsv),
   the current frozen 128-row `note → meaning` snapshot (highest `v<N>`; `-` = unused).
   Read it instead of tracing the `kXxxStart` note-range constants by hand.
 - **Note → label / menu / rack-name logic** — `Source/TriggerVocabulary.{h,cpp}`,
