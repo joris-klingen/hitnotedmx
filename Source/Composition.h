@@ -72,8 +72,9 @@ struct BumpState
 {
     struct Env { float level = 0.0f; float amount = 0.0f; };
     Env white, colour;
-    float blackLevel  = 0.0f;   // 0 = scene, 1 = full black
-    float blackTarget = 0.0f;
+    float blackLevel    = 0.0f;     // 0 = scene, 1 = full black (to/from-black fader)
+    float blackVel      = 127.0f;   // captured to/from-black note velocity → fade rate
+    bool  prevFromBlack = false;    // from-black note-onset edge (snap to instant black)
 
     // Animation clock that PAUSES while freeze is held, so releasing freeze
     // continues exactly from the frozen frame (rather than jumping to where the
@@ -118,9 +119,11 @@ struct BumpState
 //     frame untouched while held (blackout still dominates freeze).
 //   • Bump-white (120) / bump-colour (121) crossfade the whole frame toward
 //     white / the current primary hue (velocity = brightness): instant attack,
-//     release tail back to the scene. To-black (122) / from-black (123) glide
-//     the whole frame (Multicolor included) down to black and back up. The
-//     Release note (125) velocity sets the tail / glide rate (127 = instant,
+//     release tail back to the scene. To-black (122) fades the whole frame
+//     (Multicolor included) to black while held and back to the scene on
+//     release; from-black (123) snaps to instant black on its onset then fades
+//     up to the scene. To/from-black glide at their OWN note's velocity; the
+//     Release note (125) velocity sets the bump-tail rate (both 127 = instant,
 //     0 = one bar). See BumpState / section 9.
 //
 // `ledMasterDim` (0..1) scales every bar pixel's RGB output; the spot

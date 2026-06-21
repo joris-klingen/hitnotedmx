@@ -36,9 +36,9 @@ namespace hitnotedmx
 //                            soft = slow rise to FULL colour (advanceFade).
 //                            Brightness comes from the bar-selector layer.
 //   Master controls          Bump-white / bump-colour velocity = flash
-//                            brightness. Release velocity = bump-tail and
-//                            to/from-black fade rate (127 = instant, 0 = 1 bar).
-//                            To/from-black & freeze ignore velocity. Section 9
+//                            brightness; Release velocity = bump-tail rate.
+//                            To-black / from-black velocity = their own fade
+//                            rate (127 = instant, 0 = 1 bar). Freeze: no vel.
 //
 // Spots, blackout and freeze ignore velocity. The C8 octave's remaining free
 // notes (123–127) are pencilled in for density / soft-edge / speed note
@@ -737,14 +737,19 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
         bump->lastBeats = tBeats;
         bump->haveLast  = true;
 
-        const bool  relHeld  = state.isActive (static_cast<std::uint8_t> (kReleaseNote));
-        const float relVel   = relHeld
-            ? static_cast<float> (state.get (static_cast<std::uint8_t> (kReleaseNote)).velocity)
-            : 127.0f;
-        const float relBeats = (1.0f - relVel / 127.0f) * 4.0f;   // vel 0 = 1 bar (4 beats)
-        const float rate     = (relBeats <= 0.0f) ? 1.0f : static_cast<float> (dBeats) / relBeats;
+        // Velocity → per-block glide rate (vel 127 = instant, 0 = one bar).
+        auto ratePerBlock = [dBeats] (float vel) -> float
+        {
+            const float beats = (1.0f - vel / 127.0f) * 4.0f;
+            return (beats <= 0.0f) ? 1.0f : static_cast<float> (dBeats) / beats;
+        };
 
-        // Bump flashes: instant attack, decay on release at the release rate.
+        // Bump tails decay at the rate set by the "Release" note's velocity.
+        const bool  relHeld  = state.isActive (static_cast<std::uint8_t> (kReleaseNote));
+        const float bumpRate = ratePerBlock (relHeld
+            ? static_cast<float> (state.get (static_cast<std::uint8_t> (kReleaseNote)).velocity)
+            : 127.0f);
+
         auto advance = [&] (BumpState::Env& e, int note)
         {
             if (state.isActive (static_cast<std::uint8_t> (note)))
@@ -754,19 +759,34 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
             }
             else if (e.level > 0.0f)
             {
-                e.level = (relBeats <= 0.0f) ? 0.0f : std::max (0.0f, e.level - rate);
+                e.level = std::max (0.0f, e.level - bumpRate);
             }
         };
         advance (bump->white,  kBumpWhiteNote);
         advance (bump->colour, kBumpColorNote);
 
-        // To/from-black fader: the latest direction note sets the target; the
-        // level glides toward it at the release rate. Output is scaled by
-        // (1 - blackLevel) below.
-        if (state.isActive (static_cast<std::uint8_t> (kToBlackNote)))        bump->blackTarget = 1.0f;
-        else if (state.isActive (static_cast<std::uint8_t> (kFromBlackNote))) bump->blackTarget = 0.0f;
-        if (bump->blackLevel < bump->blackTarget) bump->blackLevel = std::min (bump->blackTarget, bump->blackLevel + rate);
-        else                                      bump->blackLevel = std::max (bump->blackTarget, bump->blackLevel - rate);
+        // To/from-black master fader (output scaled by 1 - blackLevel below).
+        // These glide at the rate set by THEIR OWN note's velocity (the bumps'
+        // Release note doesn't apply here):
+        //   • To black — fade toward black while held, back to the scene when
+        //     released (auto-release); the held to-black velocity sets the rate.
+        //   • From black — snaps to full black on the note's ONSET, then fades
+        //     back up to the scene at the from-black velocity: a "reveal".
+        const bool toBlackHeld   = state.isActive (static_cast<std::uint8_t> (kToBlackNote));
+        const bool fromBlackHeld = state.isActive (static_cast<std::uint8_t> (kFromBlackNote));
+        if (toBlackHeld)
+            bump->blackVel = static_cast<float> (state.get (static_cast<std::uint8_t> (kToBlackNote)).velocity);
+        if (fromBlackHeld && ! bump->prevFromBlack)
+        {
+            bump->blackLevel = 1.0f;   // instant black on the from-black onset
+            bump->blackVel   = static_cast<float> (state.get (static_cast<std::uint8_t> (kFromBlackNote)).velocity);
+        }
+        bump->prevFromBlack = fromBlackHeld;
+
+        const float blackTarget = toBlackHeld ? 1.0f : 0.0f;   // released = head back to the scene
+        const float blackRate   = ratePerBlock (bump->blackVel);
+        if (bump->blackLevel < blackTarget) bump->blackLevel = std::min (blackTarget, bump->blackLevel + blackRate);
+        else                                bump->blackLevel = std::max (blackTarget, bump->blackLevel - blackRate);
 
         const float cCov = bump->colour.level, cBri = bump->colour.amount;
         const float wCov = bump->white.level,  wBri = bump->white.amount;
