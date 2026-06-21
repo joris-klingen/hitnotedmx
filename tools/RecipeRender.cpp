@@ -27,6 +27,18 @@
 //       intensity), the lit-LED coverage, and its min/max over time — for
 //       judging whether a recipe holds the stage without blasting it.
 //
+//   recipe-render clip <out.png> <in.mid> [subdiv] [bpm]
+//       Render a whole COMBINATION CLIP as a film strip: parse the .mid, feed
+//       its notes into a MidiState as their on/off beats pass, and compose every
+//       frame through computeDmx — so a designed clip previews exactly as the rig
+//       plays it. This is the inspection contract the design tool (hitdesigndmx)
+//       calls; it authors the .mid, hitnotedmx renders it (no engine re-impl, no
+//       drift). The driver-level strobe shutter is the one thing not reproduced.
+//
+//   recipe-render contact <out.png> <dir> [subdiv] [bpm]
+//       Survey a whole folder of clips — one row per .mid (recursive), a coarse
+//       grid — for eyeballing a generated library at a glance.
+//
 // Time is sampled musically: `bars` × `subdiv` steps-per-bar. Default is 4 bars
 // at 1/16 (slow recipes need several bars to reveal their motion; many read
 // best at low-mid velocity). Strip also defaults to 4 velocity levels; sheet
@@ -34,8 +46,11 @@
 // a fine grid AND across velocity — a coarse, single-velocity sample can catch
 // a fast mover mid-dark and read as empty when it's just running quick.
 
+#include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <algorithm>
+#include <cmath>
 #include <iostream>
 
 #include "Composition.h"
@@ -91,6 +106,28 @@ void drawFrame (juce::Graphics& g, const DmxValues& v, int x, int y)
             g.fillRect (bx, py, kPxW, kPxH - 1);          // 1px gutter between rows
         }
     }
+}
+
+// Encode an image to PNG, truncating any existing file.
+int writePng (const juce::Image& img, const juce::File& out)
+{
+    juce::PNGImageFormat png;
+    juce::FileOutputStream stream (out);
+    if (! stream.openedOk())
+    {
+        std::cerr << "cannot write " << out.getFullPathName() << '\n';
+        return 1;
+    }
+    stream.setPosition (0);
+    stream.truncate();
+    if (! png.writeImageToStream (img, stream))
+    {
+        std::cerr << "PNG encode failed\n";
+        return 1;
+    }
+    std::cout << "wrote " << out.getFullPathName() << "  ("
+              << img.getWidth() << "x" << img.getHeight() << ")\n";
+    return 0;
 }
 
 struct Bank { const char* name; int start; int count; };
@@ -219,6 +256,126 @@ int renderRows (const juce::File& out, const std::vector<Row>& rows,
     return 0;
 }
 
+// ---- clip rendering ---------------------------------------------------------
+// Parse a .mid combination clip and render it through the REAL computeDmx path,
+// exactly like the audio thread: notes enter a MidiState as their note-on /
+// note-off beats pass, and each frame is composed and rasterised. So a clip
+// previews identically to how the rig plays it — white-default, velocity
+// semantics, master bumps, freeze, colour fades. The one thing not reproduced
+// offline is the strobe (a driver-level shutter): it shows as a held white frame.
+
+struct TimedEv { double beat; int pitch; int vel; bool on; };
+
+// Load every note on/off as a beat-stamped event, sorted (offs before ons at an
+// equal beat so a same-pitch retrigger keeps the note on). `lastBeat` returns
+// the final event time. Time is read in beats (ticks / PPQ), so a clip renders
+// the same at any tempo; BPM only scales the colour-fade dt.
+bool loadClip (const juce::File& f, std::vector<TimedEv>& evs, double& lastBeat)
+{
+    juce::FileInputStream in (f);
+    if (! in.openedOk()) { std::cerr << "cannot open " << f.getFullPathName() << '\n'; return false; }
+    juce::MidiFile mf;
+    if (! mf.readFrom (in)) { std::cerr << "not a MIDI file: " << f.getFullPathName() << '\n'; return false; }
+
+    const int tf = mf.getTimeFormat();
+    if (tf <= 0) { std::cerr << "SMPTE time format unsupported: " << f.getFullPathName() << '\n'; return false; }
+    const double ppq = tf;
+
+    lastBeat = 0.0;
+    for (int t = 0; t < mf.getNumTracks(); ++t)
+    {
+        const auto* seq = mf.getTrack (t);
+        for (int i = 0; i < seq->getNumEvents(); ++i)
+        {
+            const auto& m = seq->getEventPointer (i)->message;
+            const double beat = m.getTimeStamp() / ppq;
+            if      (m.isNoteOn())  evs.push_back ({ beat, m.getNoteNumber(), m.getVelocity(), true });
+            else if (m.isNoteOff()) evs.push_back ({ beat, m.getNoteNumber(), 0, false });
+            else continue;
+            lastBeat = std::max (lastBeat, beat);
+        }
+    }
+    std::stable_sort (evs.begin(), evs.end(), [] (const TimedEv& a, const TimedEv& b)
+    {
+        if (a.beat != b.beat) return a.beat < b.beat;
+        return a.on < b.on;   // process note-offs before note-ons at the same beat
+    });
+    return true;
+}
+
+struct ClipRow { juce::String label; std::vector<TimedEv> evs; };
+
+// Render clip rows (one per .mid) × time frames into a PNG, stepping each row's
+// own MidiState + colour-fade through computeDmx.
+int renderClipGrid (const juce::File& out, std::vector<ClipRow>& rows,
+                    int bars, int subdiv, double bpm, const juce::String& title, int labelW)
+{
+    const int    frames = juce::jmax (1, bars * subdiv);
+    const double bpf    = 4.0 / subdiv;
+    const double dtSec  = (60.0 / bpm) * bpf;
+    const int    nRows  = static_cast<int> (rows.size());
+    const int    titleH = title.isEmpty() ? 0 : 20;
+    const int    top    = kTopPad + titleH;
+    const int    w = labelW + frames * kFrameW + (frames - 1) * kFrameGap + kEdgePad;
+    const int    h = top + nRows * kFrameH + (nRows - 1) * kRowGap + kEdgePad;
+
+    juce::Image img (juce::Image::RGB, w, h, true);
+    juce::Graphics g (img);
+    g.fillAll (kBg);
+
+    if (titleH > 0)
+    {
+        g.setColour (juce::Colour (0xffd0d0d0));
+        g.setFont (juce::FontOptions (14.0f, juce::Font::bold));
+        g.drawText (title, 6, 2, w - 12, titleH - 2, juce::Justification::topLeft, false);
+    }
+
+    // Bar numbers along the top (one per bar — frame grid can be dense).
+    g.setColour (juce::Colour (0xff707070));
+    g.setFont (juce::FontOptions (10.5f));
+    for (int f = 0; f < frames; f += subdiv)
+    {
+        const int fx = labelW + f * (kFrameW + kFrameGap);
+        g.drawText (juce::String (f / subdiv + 1),
+                    fx, titleH + 2, kFrameW, 14, juce::Justification::centred, false);
+    }
+
+    for (int r = 0; r < nRows; ++r)
+    {
+        const auto& row  = rows[static_cast<size_t> (r)];
+        const int   rowY = top + r * (kFrameH + kRowGap);
+
+        MidiState      state;
+        ColorFadeState fade {};
+        DmxValues      vals;
+        size_t         ei = 0;
+
+        for (int f = 0; f < frames; ++f)
+        {
+            const double tb = f * bpf;
+            while (ei < row.evs.size() && row.evs[ei].beat <= tb + 1e-6)
+            {
+                const auto& e = row.evs[ei++];
+                if (e.on) state.noteOn  (static_cast<std::uint8_t> (e.pitch), 1,
+                                         static_cast<std::uint8_t> (e.vel), e.beat);
+                else      state.noteOff (static_cast<std::uint8_t> (e.pitch));
+            }
+            computeDmx (state, tb, vals, 1.0f, 1.0f, &fade, dtSec);
+            drawFrame (g, vals, labelW + f * (kFrameW + kFrameGap), rowY);
+        }
+
+        if (labelW > 12)
+        {
+            g.setColour (juce::Colour (0xffc0c0c0));
+            g.setFont (juce::FontOptions (11.0f));
+            g.drawText (row.label, 6, rowY, labelW - 10, kFrameH,
+                        juce::Justification::topLeft, true);
+        }
+    }
+
+    return writePng (img, out);
+}
+
 // ---- coverage analysis ------------------------------------------------------
 // The rig is 4 bars × 18 floods in a ring behind the band, pointing in, so what
 // reads to the audience is the gross light FIELD, not fine spatial shapes. The
@@ -292,14 +449,17 @@ int usage()
 {
     std::cerr <<
         "usage:\n"
-        "  recipe-render strip <out.png> <pitch> [bars] [subdiv] [levels]   velocity ladder\n"
-        "  recipe-render sheet <out.png> <bank>  [vel]  [bars]   [subdiv]   bank survey\n"
-        "  recipe-render stats <bank> [vel] [bars] [subdiv]                 coverage table\n"
+        "  recipe-render strip   <out.png> <pitch> [bars] [subdiv] [levels]  velocity ladder\n"
+        "  recipe-render sheet   <out.png> <bank>  [vel]  [bars]   [subdiv]  bank survey\n"
+        "  recipe-render stats   <bank> [vel] [bars] [subdiv]                coverage table\n"
+        "  recipe-render clip    <out.png> <in.mid> [subdiv] [bpm]           one combo clip\n"
+        "  recipe-render contact <out.png> <dir>    [subdiv] [bpm]           survey a folder of clips\n"
         "      bank   = chases | breathes | wild | color | all\n"
         "      bars   = musical bars to span          (default 4)\n"
-        "      subdiv = sampling steps per bar         (default 16 = sixteenths)\n"
+        "      subdiv = sampling steps per bar         (default 16; clip 8; contact 4)\n"
         "      levels = velocity rows, spread 20..127  (strip default 4)\n"
-        "      vel    = single MIDI velocity 1..127    (sheet/stats default 64)\n";
+        "      vel    = single MIDI velocity 1..127    (sheet/stats default 64)\n"
+        "      bpm    = tempo for colour-fade timing   (clip/contact default 120)\n";
     return 2;
 }
 }  // namespace
@@ -382,6 +542,50 @@ int main (int argc, char** argv)
 
         const juce::String title = target + "  @ vel " + juce::String (vel);
         return renderRows (out, rows, frames, bpf, title);
+    }
+
+    if (mode == "clip")
+    {
+        // One combination clip as a filmstrip (bars derived from the file).
+        const juce::File in = juce::File::getCurrentWorkingDirectory().getChildFile (target);
+        const int    subdiv = argc > 4 ? juce::String (argv[4]).getIntValue()    : 8;
+        const double bpm    = argc > 5 ? juce::String (argv[5]).getDoubleValue() : 120.0;
+        if (subdiv < 1 || bpm <= 0.0) { std::cerr << "subdiv >= 1, bpm > 0\n"; return usage(); }
+
+        std::vector<ClipRow> rows (1);
+        double lastBeat = 0.0;
+        if (! loadClip (in, rows[0].evs, lastBeat)) return 1;
+        const int bars = juce::jmax (1, static_cast<int> (std::ceil (lastBeat / 4.0)));
+        return renderClipGrid (out, rows, bars, subdiv, bpm,
+                               in.getFileNameWithoutExtension(), 8);
+    }
+
+    if (mode == "contact")
+    {
+        // Survey every .mid under a folder — one row per clip, coarse grid.
+        const juce::File dir = juce::File::getCurrentWorkingDirectory().getChildFile (target);
+        const int    subdiv = argc > 4 ? juce::String (argv[4]).getIntValue()    : 4;
+        const double bpm    = argc > 5 ? juce::String (argv[5]).getDoubleValue() : 120.0;
+        if (! dir.isDirectory()) { std::cerr << "not a directory: " << dir.getFullPathName() << '\n'; return usage(); }
+        if (subdiv < 1 || bpm <= 0.0) { std::cerr << "subdiv >= 1, bpm > 0\n"; return usage(); }
+
+        auto files = dir.findChildFiles (juce::File::findFiles, true, "*.mid");
+        files.sort();
+        if (files.isEmpty()) { std::cerr << "no .mid files under " << dir.getFullPathName() << '\n'; return 1; }
+
+        std::vector<ClipRow> rows;
+        int bars = 1;
+        for (const auto& f : files)
+        {
+            ClipRow row;
+            row.label = f.getRelativePathFrom (dir);
+            double lastBeat = 0.0;
+            if (! loadClip (f, row.evs, lastBeat)) continue;
+            bars = juce::jmax (bars, static_cast<int> (std::ceil (lastBeat / 4.0)));
+            rows.push_back (std::move (row));
+        }
+        const juce::String title = dir.getFileName() + "  (" + juce::String (rows.size()) + " clips)";
+        return renderClipGrid (out, rows, bars, subdiv, bpm, title, 200);
     }
 
     return usage();

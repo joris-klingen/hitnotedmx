@@ -139,6 +139,7 @@ target_compile_definitions(recipe-render PRIVATE
     JUCE_STANDALONE_APPLICATION=1
 )
 target_link_libraries(recipe-render PRIVATE
+    juce::juce_audio_basics
     juce::juce_gui_basics
     juce::juce_recommended_config_flags
     juce::juce_recommended_warning_flags
