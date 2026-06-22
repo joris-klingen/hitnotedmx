@@ -764,12 +764,14 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
     //     primary hue (velocity = flash brightness). Instant attack; on release
     //     a tail decays back to the *scene* (not to black), so a flash over a
     //     wash settles back into it.
-    //   • to / from black — a master fade fader: "to black" glides the whole
-    //     rig (Multicolor recipes included) down to black, "from black" glides
-    //     it back up to the scene.
-    // The "Release" note's velocity sets both the bump tails and the fade glide
-    // rate (127 = instant, 0 = one bar). State lives in `bump`, advanced in
-    // beat-time so the timing is tempo-relative.
+    //   • to black — snaps to the full scene on each note's ONSET then falls to
+    //     black while held; from black — snaps to instant black on its ONSET
+    //     then rises. BOTH reset to the scene when the note ENDS, per-note (so a
+    //     note on every beat restarts it). Spots excluded — only blackout (C-2)
+    //     darkens them.
+    // Bump tails glide at the Release note's velocity; to/from-black glide at
+    // their OWN note's velocity (127 = instant, 0 = one bar). State lives in
+    // `bump`, advanced in beat-time so the timing is tempo-relative.
     if (bump != nullptr)
     {
         const double dBeats = bump->haveLast ? std::max (0.0, tBeats - bump->lastBeats) : 0.0;
@@ -813,19 +815,55 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
         //     back up to the scene at the from-black velocity: a "reveal".
         const bool toBlackHeld   = state.isActive (static_cast<std::uint8_t> (kToBlackNote));
         const bool fromBlackHeld = state.isActive (static_cast<std::uint8_t> (kFromBlackNote));
-        if (toBlackHeld)
-            bump->blackVel = static_cast<float> (state.get (static_cast<std::uint8_t> (kToBlackNote)).velocity);
-        if (fromBlackHeld && ! bump->prevFromBlack)
-        {
-            bump->blackLevel = 1.0f;   // instant black on the from-black onset
-            bump->blackVel   = static_cast<float> (state.get (static_cast<std::uint8_t> (kFromBlackNote)).velocity);
-        }
-        bump->prevFromBlack = fromBlackHeld;
 
-        const float blackTarget = toBlackHeld ? 1.0f : 0.0f;   // released = head back to the scene
-        const float blackRate   = ratePerBlock (bump->blackVel);
-        if (bump->blackLevel < blackTarget) bump->blackLevel = std::min (blackTarget, bump->blackLevel + blackRate);
-        else                                bump->blackLevel = std::max (blackTarget, bump->blackLevel - blackRate);
+        // Each new note re-triggers, keyed off the held note's START BEAT (so
+        // back-to-back clip notes, which never read as "released" between them,
+        // still fire): from-black snaps to full black then rises to the scene;
+        // to-black snaps to the full scene ("full on") then falls to black.
+        if (fromBlackHeld)
+        {
+            const auto& fb = state.get (static_cast<std::uint8_t> (kFromBlackNote));
+            if (fb.startBeat != bump->lastFromBlackStart)
+            {
+                bump->blackLevel = 1.0f;
+                bump->blackVel   = static_cast<float> (fb.velocity);
+                bump->lastFromBlackStart = fb.startBeat;
+            }
+        }
+        else
+        {
+            bump->lastFromBlackStart = -1.0;   // next from-black note is a fresh onset
+        }
+        if (toBlackHeld)
+        {
+            const auto& tb = state.get (static_cast<std::uint8_t> (kToBlackNote));
+            if (tb.startBeat != bump->lastToBlackStart)
+            {
+                bump->blackLevel = 0.0f;   // snap to full scene, then fall to black
+                bump->blackVel   = static_cast<float> (tb.velocity);
+                bump->lastToBlackStart = tb.startBeat;
+            }
+        }
+        else
+        {
+            bump->lastToBlackStart = -1.0;     // next to-black note is a fresh onset
+        }
+
+        // While a black note is HELD, glide toward its target (to-black → black,
+        // from-black → scene) at the note's own velocity rate. When NEITHER is
+        // held the note has ended — reset straight to the scene, so the next
+        // note starts fresh (each beat re-snaps to black / restarts the fade).
+        if (toBlackHeld || fromBlackHeld)
+        {
+            const float blackTarget = toBlackHeld ? 1.0f : 0.0f;
+            const float blackRate   = ratePerBlock (bump->blackVel);
+            if (bump->blackLevel < blackTarget) bump->blackLevel = std::min (blackTarget, bump->blackLevel + blackRate);
+            else                                bump->blackLevel = std::max (blackTarget, bump->blackLevel - blackRate);
+        }
+        else
+        {
+            bump->blackLevel = 0.0f;   // note ended → reset to scene
+        }
 
         const float cCov = bump->colour.level, cBri = bump->colour.amount;
         const float wCov = bump->white.level,  wBri = bump->white.amount;

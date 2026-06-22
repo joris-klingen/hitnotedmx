@@ -72,9 +72,10 @@ struct BumpState
 {
     struct Env { float level = 0.0f; float amount = 0.0f; };
     Env white, colour;
-    float blackLevel    = 0.0f;     // 0 = scene, 1 = full black (to/from-black fader)
-    float blackVel      = 127.0f;   // captured to/from-black note velocity → fade rate
-    bool  prevFromBlack = false;    // from-black note-onset edge (snap to instant black)
+    float  blackLevel = 0.0f;       // 0 = scene, 1 = full black (to/from-black fader)
+    float  blackVel   = 127.0f;     // captured to/from-black note velocity → fade rate
+    double lastFromBlackStart = -1.0;  // start beat of the live from-black note (per-note onset)
+    double lastToBlackStart   = -1.0;  // start beat of the live to-black note (per-note onset)
 
     // Animation clock that PAUSES while freeze is held, so releasing freeze
     // continues exactly from the frozen frame (rather than jumping to where the
@@ -120,10 +121,12 @@ struct BumpState
 //   • Bump-white (120) / bump-colour (121) crossfade the whole frame toward
 //     white / the current primary hue (velocity = brightness): instant attack,
 //     release tail back to the scene. To-black (122) fades the BARS (Multicolor
-//     included; spots excluded — only blackout C-2 takes the spots dark) to
-//     black while held and back to the scene on release; from-black (123) snaps
-//     to instant black on its onset then fades up. To/from-black glide at their
-//     OWN note's velocity; the
+//     included; spots excluded — only blackout C-2 takes the spots dark) snaps
+//     to the full scene on each note's onset then falls to black; from-black
+//     (123) snaps to instant black on its onset then rises. BOTH reset to the
+//     scene when the note ends (per-note via
+//     start beat, so a note on every beat restarts it). To/from-black glide at
+//     their OWN note's velocity; the
 //     Release note (125) velocity sets the bump-tail rate (both 127 = instant,
 //     0 = one bar). See BumpState / section 9.
 //
