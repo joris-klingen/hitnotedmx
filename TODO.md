@@ -5,18 +5,20 @@ architecture lives in [STATUS.md](STATUS.md).
 
 ## Show prep
 
-1. **Recipe-bank refinement (Blocks + Disco)** — all 48 recipes are tuned on
-   hardware and read well; the remaining work is focused on **Blocks** and
-   **Disco** (Multicolor), which still want improvement:
+1. **Recipe-bank refinement (Disco + tuning pass)** — the recipes are tuned on
+   hardware and read well. Remaining items:
    - **Disco — time it to the beat.** Today it free-runs; lock its colour
      switches / motion to the beat grid so it pulses in time with the song.
-   - **Blocks — redesign.** The current pattern doesn't land; rethink the look
-     (block size, movement, colour logic), not just tweak constants.
-   Also folds in the **VU-meter low-level** feel: only the *lowest* LED should
-   dim at very low signal (today a fixed 2-pixel floor with a fast per-beat
-   release). Speeds, band widths, gaussian radii and hue ramps are
-   single-constant tweaks in `Recipes.cpp`. See #2 for an automated quality net
-   to make this tuning safer.
+   - **VU-meter low-level feel:** only the *lowest* LED should dim at very low
+     signal (today a fixed 2-pixel floor with a fast per-beat release).
+   - **Eyeball the v7 recipe pass on hardware:** the new/changed recipes —
+     Theater, Tide, Smooth shimmer, Stutter, Velvet, Rouge, plus the bloom /
+     moon-rise / ripple-H / converge / desert / sunset / storm tweaks and the
+     wider Speed-note slow end (0.125× = 8-beat chases) — were dialled on the
+     preview; confirm on the bars and fine-tune the single constants in
+     `Recipes.cpp`. (Blocks was retired in favour of Velvet.)
+   Speeds, band widths, gaussian radii and hue ramps are single-constant tweaks
+   in `Recipes.cpp`. See #2 for the automated quality net (`recipe-range`).
 
 2. **Render tool — recipe quality net, clip preview, hitdesigndmx integration**
    — an offline render tool (sibling to `mapping-tool`) reusing the real

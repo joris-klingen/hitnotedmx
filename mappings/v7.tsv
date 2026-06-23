@@ -1,0 +1,128 @@
+0	bk Blackout
+1	sp Spot L WW
+2	sp Spot L col
+3	sp Spot R WW
+4	sp Spot R col
+5	ba Bar 1
+6	ba Bar 2
+7	ba Bar 3
+8	ba Bar 4
+9	-
+10	-
+11	-
+12	pz Zone 1
+13	pz Zone 2
+14	pz Zone 3
+15	pz Zone 4
+16	pz Zone 5
+17	pz Zone 6
+18	pz Zone 7
+19	pz Zone 8
+20	pz Zone 9
+21	pz Even
+22	pz Odd
+23	pz Thirds
+24	ch Chase up
+25	ch Chase dn
+26	ch Ping-pong
+27	ch Diag up
+28	ch Diag dn
+29	ch Snake
+30	ch Theater
+31	ch Spiral
+32	ch Waves
+33	ch Expand
+34	ch Contract
+35	ch Pong
+36	br Tide
+37	br Sine
+38	br Ripple
+39	br Ripple H
+40	br Bloom
+41	br Halo
+42	br Moon rise
+43	br Soft ball
+44	br Drift
+45	br Aurora
+46	br Shimmer
+47	br Smooth shimmer
+48	wd Strobe
+49	wd Sparkle
+50	wd Sparkle few
+51	wd Lightning
+52	wd Glitch
+53	wd Static
+54	wd Rain
+55	wd Stutter
+56	wd Bounce
+57	wd Fast ball
+58	wd Zigzag
+59	wd Converge
+60	mc Rainbow
+61	mc Comet
+62	mc VU meter
+63	mc VU smooth
+64	mc Fire
+65	mc Embers
+66	mc Magma
+67	mc Lava
+68	mc Heatmap
+69	mc Ocean
+70	mc Forest
+71	mc Desert
+72	mc Sunset
+73	mc Twilight
+74	mc Borealis
+75	mc Night sky
+76	mc Galaxy
+77	mc Nebula
+78	mc Storm
+79	mc Plasma
+80	mc Police
+81	mc Disco
+82	mc Velvet
+83	mc Rouge
+84	cp Black
+85	cp Red
+86	cp Orange-red
+87	cp Orange
+88	cp Amber
+89	cp Yellow
+90	cp Lime
+91	cp Green
+92	cp Mint
+93	cp Teal
+94	cp Cyan
+95	cp Sky
+96	cp Blue
+97	cp Royal
+98	cp Indigo
+99	cp Violet
+100	cp Purple
+101	cp Magenta
+102	cp Pink
+103	cp Hot pink
+104	cp Crimson
+105	cp Warm white
+106	cp Cool white
+107	cp Lavender
+108	cs Warm white
+109	cs Coral
+110	cs Gold
+111	cs Chartreuse
+112	cs Jade
+113	cs Aqua
+114	cs Azure
+115	cs Periwinkle
+116	cs Lavender
+117	cs Orchid
+118	cs Rose
+119	cs Cool white
+120	ms Bump white
+121	ms Bump color
+122	ms To black
+123	ms From black
+124	ms Freeze
+125	ms Release
+126	-
+127	ms Speed
