@@ -62,13 +62,16 @@ public:
 
     // Read-only view of the composition's per-channel output, refreshed
     // every audio block. Read from the GUI thread for the on-screen DMX
-    // visualizer. Per-cell tearing under a concurrent audio-thread write
-    // is acceptable for a 30 Hz visualisation.
-    const DmxValues& getDmxValues() const noexcept                    { return dmxValues; }
+    // visualizer. Returns the PUBLISHED snapshot (a finished-frame copy), not
+    // the live compose buffer: computeDmx clears-then-refills the live buffer,
+    // so reading it directly let a GUI read catch the all-zero window and a
+    // segment would flicker black. The snapshot only holds final frames, so a
+    // torn read mixes two valid frames at worst — acceptable for a ~15 Hz view.
+    const DmxValues& getDmxValues() const noexcept                    { return publishedValues; }
 
-    // Parallel "armed but unlit" preview mask, written by computeDmx alongside
-    // dmxValues and read by the visualiser to draw grey selection outlines.
-    const SelectionMask& getSelection() const noexcept                { return selection; }
+    // Parallel "armed but unlit" preview mask, published alongside dmxValues
+    // and read by the visualiser to draw grey selection outlines.
+    const SelectionMask& getSelection() const noexcept                { return publishedSelection; }
 
     // UI state. Not stored in the parameter tree because they are not
     // host-automatable.
@@ -113,8 +116,14 @@ private:
     MidiState  liveMidi;     // live MIDI input notes (written by the audio thread)
     MidiState  previewMidi;  // click-preview notes from the GUI (audio thread)
     MidiState  midiState;    // liveMidi ∪ previewMidi, rebuilt per block; read by computeDmx + GUI
-    DmxValues  dmxValues;
+    DmxValues  dmxValues;      // live compose buffer (cleared + refilled each block)
     SelectionMask selection;   // "armed but unlit" cells, for the visualiser
+
+    // Finished-frame snapshots the GUI reads (see getDmxValues): copied from
+    // the live buffers at the end of processBlock so the visualiser never
+    // catches computeDmx's mid-compose all-zero window.
+    DmxValues     publishedValues;
+    SelectionMask publishedSelection;
     ColorFadeState colorFade;  // persists colour-fade state across blocks
     BumpState  bumpState;      // persists bump release-tail envelopes across blocks
 
