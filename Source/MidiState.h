@@ -43,6 +43,13 @@ public:
     // Drop everything. Called on prepareToPlay / reset / sample rate change.
     void clear() noexcept;
 
+    // Rebuild this state as the per-pitch union of two sources: `primary` wins
+    // when it holds a pitch, otherwise `secondary`. Lets live MIDI and the
+    // click-preview be tracked in SEPARATE states — so a live note-off can't
+    // clear a preview-held slot (or vice-versa) — and merged just before
+    // composition. O(kNumPitches), no allocations.
+    void setToUnion (const MidiState& primary, const MidiState& secondary) noexcept;
+
     bool isActive (std::uint8_t pitch) const noexcept
     {
         return notes[pitch].active;

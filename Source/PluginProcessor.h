@@ -14,14 +14,14 @@
 namespace hitnotedmx
 {
 
-// MIDI-driven DMX lighting controller. Accepts MIDI input, exposes 512
-// host-automatable DMX-channel parameters (so manual control + Live
-// automation still work), and runs note-triggered chase/breathe/sparkle/
-// etc. recipes whose per-block output is pushed to the ENTTEC driver and
-// mirrored in the on-screen visualiser.
+// MIDI-driven DMX lighting controller. Accepts MIDI input and runs
+// note-triggered chase/breathe/sparkle/etc. recipes whose per-block output is
+// pushed to the ENTTEC driver and mirrored in the on-screen visualiser. The
+// only host-automatable parameters are the three master controls (LED dim,
+// spot dim, pixel density) — the per-channel DMX output is owned entirely by
+// the recipe engine, so it is not exposed as automatable channel parameters.
 
-class HitNoteDmxAudioProcessor  : public juce::AudioProcessor,
-                                  private juce::AudioProcessorValueTreeState::Listener
+class HitNoteDmxAudioProcessor  : public juce::AudioProcessor
 {
 public:
     HitNoteDmxAudioProcessor();
@@ -74,8 +74,6 @@ public:
     // host-automatable.
     bool blackout = false;
 
-    static juce::String paramIdForChannel (int channel1to512);
-
     // Live preview (GUI thread → audio thread). Holds the given SET of
     // trigger pitches (toggle menu) until replaced. Injected into MidiState
     // each block via lock-free atomics. (A structural/recipe trigger with no
@@ -97,8 +95,6 @@ public:
     static constexpr const char* kPixelDensityId  = "pixelDensity";
 
 private:
-    void parameterChanged (const juce::String& parameterID, float newValue) override;
-
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
     // Apply the GUI's preview request to midiState (audio thread).
@@ -114,7 +110,9 @@ private:
 
     EnttecProDmx dmx;
     MidiLog    midiLog;
-    MidiState  midiState;
+    MidiState  liveMidi;     // live MIDI input notes (written by the audio thread)
+    MidiState  previewMidi;  // click-preview notes from the GUI (audio thread)
+    MidiState  midiState;    // liveMidi ∪ previewMidi, rebuilt per block; read by computeDmx + GUI
     DmxValues  dmxValues;
     SelectionMask selection;   // "armed but unlit" cells, for the visualiser
     ColorFadeState colorFade;  // persists colour-fade state across blocks

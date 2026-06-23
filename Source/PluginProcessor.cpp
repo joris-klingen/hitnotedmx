@@ -11,30 +11,20 @@ namespace
 {
 }
 
-juce::String HitNoteDmxAudioProcessor::paramIdForChannel (int channel1to512)
-{
-    return "ch" + juce::String (channel1to512);
-}
-
 juce::AudioProcessorValueTreeState::ParameterLayout
 HitNoteDmxAudioProcessor::createParameterLayout()
 {
     juce::AudioProcessorValueTreeState::ParameterLayout layout;
-    for (int i = 1; i <= kDmxUniverseSize; ++i)
-    {
-        layout.add (std::make_unique<juce::AudioParameterFloat> (
-            juce::ParameterID (paramIdForChannel (i), 1),
-            "Channel " + juce::String (i),
-            juce::NormalisableRange<float> (0.0f, 255.0f, 1.0f),
-            0.0f));
-    }
 
     // Master dims — automatable so a host/MIDI-mapped knob can ride them
-    // live. 0..1, default 1.0 (no attenuation). These are NOT "chN"
-    // channel params, so parameterChanged() ignores them; processBlock
-    // polls them each block and feeds them into computeDmx(). The
-    // value<->text functions format as a percentage in both the host and
-    // the attached on-screen knob.
+    // live. 0..1, default 1.0 (no attenuation). processBlock polls them each
+    // block and feeds them into computeDmx(). The value<->text functions
+    // format as a percentage in both the host and the attached on-screen knob.
+    //
+    // These three are the ONLY host-automatable parameters: the 228 rig DMX
+    // channels are written every block from the recipe engine (see
+    // processBlock), so exposing them as automatable params was a no-op (the
+    // engine clobbered any host value each block) — they were dropped.
     const auto pctAttributes = juce::AudioParameterFloatAttributes()
         .withStringFromValueFunction ([] (float v, int) {
             return juce::String (juce::roundToInt (v * 100.0f)) + "%"; })
@@ -65,9 +55,6 @@ HitNoteDmxAudioProcessor::HitNoteDmxAudioProcessor()
                           .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       parameters (*this, nullptr, "DmxUniverse", createParameterLayout())
 {
-    for (int i = 1; i <= kDmxUniverseSize; ++i)
-        parameters.addParameterListener (paramIdForChannel (i), this);
-
     ledMasterDimParam  = parameters.getRawParameterValue (kLedMasterDimId);
     spotMasterDimParam = parameters.getRawParameterValue (kSpotMasterDimId);
     pixelDensityParam  = parameters.getRawParameterValue (kPixelDensityId);
@@ -79,15 +66,14 @@ HitNoteDmxAudioProcessor::HitNoteDmxAudioProcessor()
 
 HitNoteDmxAudioProcessor::~HitNoteDmxAudioProcessor()
 {
-    for (int i = 1; i <= kDmxUniverseSize; ++i)
-        parameters.removeParameterListener (paramIdForChannel (i), this);
-
     dmx.disconnect();
 }
 
 void HitNoteDmxAudioProcessor::prepareToPlay (double sampleRate, int /*samplesPerBlock*/)
 {
     sampleRate_ = sampleRate > 0 ? sampleRate : 48000.0;
+    liveMidi.clear();
+    previewMidi.clear();
     midiState.clear();
     colorFade.reset();
     freeRunBeats = 0.0;
@@ -159,10 +145,10 @@ void HitNoteDmxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
         if (msg.isNoteOn())
         {
-            midiState.noteOn (static_cast<std::uint8_t> (msg.getNoteNumber()),
-                              static_cast<std::uint8_t> (msg.getChannel()),
-                              static_cast<std::uint8_t> (msg.getVelocity()),
-                              eventBeat);
+            liveMidi.noteOn (static_cast<std::uint8_t> (msg.getNoteNumber()),
+                             static_cast<std::uint8_t> (msg.getChannel()),
+                             static_cast<std::uint8_t> (msg.getVelocity()),
+                             eventBeat);
             midiLog.push ({ MidiLogEntry::Kind::NoteOn,
                             static_cast<juce::uint8> (msg.getChannel()),
                             static_cast<juce::uint8> (msg.getNoteNumber()),
@@ -171,7 +157,7 @@ void HitNoteDmxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         }
         else if (msg.isNoteOff())
         {
-            midiState.noteOff (static_cast<std::uint8_t> (msg.getNoteNumber()));
+            liveMidi.noteOff (static_cast<std::uint8_t> (msg.getNoteNumber()));
             midiLog.push ({ MidiLogEntry::Kind::NoteOff,
                             static_cast<juce::uint8> (msg.getChannel()),
                             static_cast<juce::uint8> (msg.getNoteNumber()),
@@ -181,7 +167,13 @@ void HitNoteDmxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     }
 
     // 2b. Fold in any live preview the GUI requested (held until cleared).
+    //     Live MIDI and the preview live in separate states, so neither's
+    //     note-off can clear the other's slot when they overlap on a pitch.
     applyPreview (blockStartBeat);
+
+    // 2c. Merge into the composite everything downstream reads (live wins on a
+    //     shared pitch). Rebuilt every block; never allocates.
+    midiState.setToUnion (liveMidi, previewMidi);
 
     // 3. Compose once per block using the playhead time at block start.
     //    Block durations are typically 5-10 ms so per-event time skew
@@ -280,7 +272,7 @@ void HitNoteDmxAudioProcessor::applyPreview (double atBeat) noexcept
     {
         for (int a : appliedPreview)
             if (a >= 0)
-                midiState.noteOff (static_cast<std::uint8_t> (a));
+                previewMidi.noteOff (static_cast<std::uint8_t> (a));
         appliedPreview.fill (-1);
         appliedPreviewVel = vel;
     }
@@ -288,22 +280,14 @@ void HitNoteDmxAudioProcessor::applyPreview (double atBeat) noexcept
     // Release previously-held preview notes no longer wanted.
     for (int a : appliedPreview)
         if (a >= 0 && ! contains (want, a))
-            midiState.noteOff (static_cast<std::uint8_t> (a));
+            previewMidi.noteOff (static_cast<std::uint8_t> (a));
 
     // Hold newly-requested preview notes at the editor-controlled velocity.
     for (int wv : want)
         if (wv >= 0 && ! contains (appliedPreview, wv))
-            midiState.noteOn (static_cast<std::uint8_t> (wv), 1, vel, atBeat);
+            previewMidi.noteOn (static_cast<std::uint8_t> (wv), 1, vel, atBeat);
 
     appliedPreview = want;
-}
-
-void HitNoteDmxAudioProcessor::parameterChanged (const juce::String& parameterID, float newValue)
-{
-    if (! parameterID.startsWith ("ch"))
-        return;
-    const int channel = parameterID.substring (2).getIntValue();
-    dmx.setChannel (channel, (juce::uint8) juce::jlimit (0, 255, (int) newValue));
 }
 
 }  // namespace hitnotedmx

@@ -144,9 +144,36 @@ target_link_libraries(recipe-render PRIVATE
     juce::juce_recommended_warning_flags
 )
 
+# ---- recipe-check -----------------------------------------------------------
+# A fast numeric regression net for the recipe engine: drives the REAL recipe
+# functions + computeDmx() and fails on any non-finite / out-of-range output.
+# Reuses the engine sources, so it can never drift from what the audio thread
+# runs. Registered as the `recipe-range` CTest below.
+juce_add_console_app(recipe-check PRODUCT_NAME "recipe-check")
+target_sources(recipe-check PRIVATE
+    tools/RecipeCheck.cpp
+    Source/Recipes.cpp
+    Source/Composition.cpp
+    Source/MidiState.cpp
+)
+target_include_directories(recipe-check PRIVATE Source)
+target_compile_definitions(recipe-check PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+)
+target_link_libraries(recipe-check PRIVATE
+    juce::juce_events
+    juce::juce_recommended_config_flags
+    juce::juce_recommended_warning_flags
+)
+
 # Guard against accidental mapping drift: the current vocabulary must match the
 # frozen snapshot for kMappingVersion. If you changed a note's meaning on
 # purpose, bump kMappingVersion and re-freeze (see mappings/README.md).
 enable_testing()
 add_test(NAME mapping-frozen
          COMMAND mapping-tool check "${CMAKE_CURRENT_SOURCE_DIR}/mappings")
+
+# Guard the recipe engine: every recipe + computeDmx must stay finite and in
+# range across a beat / velocity / density sweep (see tools/RecipeCheck.cpp).
+add_test(NAME recipe-range COMMAND recipe-check)
