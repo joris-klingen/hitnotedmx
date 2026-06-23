@@ -207,6 +207,16 @@ void HitNoteDmxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         const int byte = juce::jlimit (0, 255, static_cast<int> (f * 255.0f + 0.5f));
         dmx.setChannel (ch1, static_cast<juce::uint8> (byte));
     }
+
+    // 5. Publish a finished-frame snapshot for the GUI visualiser to read.
+    //    computeDmx clears `dmxValues` to zero and then refills it, so a GUI
+    //    read landing mid-compose would see not-yet-written cells as black —
+    //    that's the occasional "segment flickers black" glitch. These copies
+    //    only ever hold FINAL values, so a torn read can mix two valid frames
+    //    but never expose the all-zero clear window. Plain array copies: no
+    //    allocation, no lock — fine on the audio thread.
+    publishedValues    = dmxValues;
+    publishedSelection = selection;
 }
 
 void HitNoteDmxAudioProcessor::getHeldPitches (std::vector<int>& out) const

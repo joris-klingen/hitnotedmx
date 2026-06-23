@@ -173,6 +173,38 @@ void DmxVisualizer::rebuildCache()
     const int rigX    = (w - rigW) / 2;
     const int barsX   = rigX + spotSize + spotGap;  // left edge of bar 1
 
+    // One round LED: a bright bloom halo (only when lit) drawn behind a
+    // flat-filled disc. A black disc (off pixel) reads as an unlit socket — that
+    // is intentional and helps the operator see the grid. `bloomXScale` stretches
+    // the halo horizontally: bars pass > 1 so the glow spreads sideways across
+    // the wide cell; the round spots pass 1 to keep their halo circular.
+    // Allocating a gradient per lit cell is fine here: rebuildCache runs on the
+    // message thread, cache-on-change, over ~72 cells + 2 spots — not the audio
+    // thread.
+    auto drawLed = [&g] (float cx, float cy, float radius, juce::Colour c,
+                         float bloomXScale)
+    {
+        // Bloom is gated on the LED being lit, so off pixels stay clean and we
+        // skip the gradient work. An off cell is exactly black (all channels 0).
+        if (c.getRed() > 5 || c.getGreen() > 5 || c.getBlue() > 5)
+        {
+            const float bloomR = radius * 2.2f;
+            juce::ColourGradient bloom (c.withAlpha (0.54f), cx, cy,
+                                        c.withAlpha (0.00f), cx, cy - bloomR, true);
+            bloom.addColour (0.55, c.withAlpha (0.225f));
+            g.setGradientFill (bloom);
+
+            // Scale about the centre so the radial gradient becomes an ellipse
+            // (wider than tall for bars) — true anisotropic falloff, not a
+            // circular glow clipped to an ellipse.
+            juce::Graphics::ScopedSaveState save (g);
+            g.addTransform (juce::AffineTransform::scale (bloomXScale, 1.0f, cx, cy));
+            g.fillEllipse (cx - bloomR, cy - bloomR, bloomR * 2.0f, bloomR * 2.0f);
+        }
+        g.setColour (c);
+        g.fillEllipse (cx - radius, cy - radius, radius * 2.0f, radius * 2.0f);
+    };
+
     // ---- Spots flanking the grid, top-aligned with the bars -------------
     const int spotY = originY;
     const int spotX[kNumSpots] = { rigX, barsX + barsTotalW + spotGap };
@@ -187,15 +219,47 @@ void DmxVisualizer::rebuildCache()
         const float ww  = values.get (spot.white());
 
         const int x = spotX[s];
-        g.setColour (rgbwToScreen (r, gv, b, ww, dim));
-        g.fillEllipse (static_cast<float> (x), static_cast<float> (spotY),
-                       static_cast<float> (spotSize), static_cast<float> (spotSize));
+        drawLed (x + spotSize * 0.5f, spotY + spotSize * 0.5f, spotSize * 0.5f,
+                 rgbwToScreen (r, gv, b, ww, dim), 1.0f);   // round halo for the spots (no stretch)
 
         // Start DMX address, small, under the fixture.
         drawAddress (g, spot.dimmer(), x, spotY + spotSize, spotSize);
     }
 
     // ---- Bars (unlabelled) ----------------------------------------------
+    // Two passes so a lit LED's bloom is never clipped by a neighbouring cell's
+    // socket: (1) lay every black rectangular socket — also what an idle pixel
+    // shows, plus the grey selection rectangle — then (2) draw the lit round
+    // LEDs on top. Layout constants are unchanged; only the shape within each
+    // cell changes (idle = rectangle, lit = round dot + bloom).
+    for (int barIdx = 0; barIdx < kNumBars; ++barIdx)
+    {
+        const auto& bar = kBars[barIdx];
+        const int x = barsX + barIdx * (barW + barSpacing);
+
+        for (int pixel = 1; pixel <= bar.pixels; ++pixel)
+        {
+            const int row = bar.pixels - pixel;  // pixel 1 at the bottom
+            const int y0  = rowY (row);
+            const int cellH = juce::jmax (1, rowY (row + 1) - y0 - 2);
+
+            g.setColour (juce::Colour (0xff000000));   // black socket / idle pixel
+            g.fillRect (x, y0, barW, cellH);
+
+            // "Armed but unlit": a held selector covers this cell but nothing
+            // is lighting it. Show a grey rectangle so the operator sees the
+            // selection even though no DMX is sent for it.
+            if (selection.cell[static_cast<size_t> (barIdx)][static_cast<size_t> (pixel)])
+            {
+                g.setColour (juce::Colour (0xff6a6a6a));
+                g.drawRect (x, y0, barW, cellH, 1);
+            }
+        }
+
+        // Start DMX address, small, under the bar (flush with the pane bottom).
+        drawAddress (g, bar.dmxStart, x, rowY (bar.pixels), barW);
+    }
+
     for (int barIdx = 0; barIdx < kNumBars; ++barIdx)
     {
         const auto& bar = kBars[barIdx];
@@ -207,26 +271,21 @@ void DmxVisualizer::rebuildCache()
             const float r  = values.get (ch[0]);
             const float gv = values.get (ch[1]);
             const float b  = values.get (ch[2]);
+            if (juce::jmax (r, juce::jmax (gv, b)) <= 0.02f)
+                continue;   // idle — only the black socket above shows
 
             const int row = bar.pixels - pixel;  // pixel 1 at the bottom
             const int y0  = rowY (row);
-            const int y1  = rowY (row + 1);
-            const int cellH = juce::jmax (1, y1 - y0 - 2);
-            g.setColour (juce::Colour::fromRGB (toScreenByte (r), toScreenByte (gv), toScreenByte (b)));
-            g.fillRect (x, y0, barW, cellH);
+            const int cellH = juce::jmax (1, rowY (row + 1) - y0 - 2);
 
-            // "Armed but unlit": a held selector covers this cell but nothing
-            // is lighting it. Show a grey outline so the operator sees the
-            // selection even though no DMX is sent for it.
-            if (selection.cell[static_cast<size_t> (barIdx)][static_cast<size_t> (pixel)])
-            {
-                g.setColour (juce::Colour (0xff6a6a6a));
-                g.drawRect (x, y0, barW, cellH, 1);
-            }
+            // A round dot centred in the existing cell footprint.
+            const float cx     = x + barW * 0.5f;
+            const float cy     = y0 + cellH * 0.5f;
+            const float radius = juce::jmax (1.0f, 0.5f * juce::jmin (barW, cellH) - 1.0f);
+            drawLed (cx, cy, radius,
+                     juce::Colour::fromRGB (toScreenByte (r), toScreenByte (gv), toScreenByte (b)),
+                     1.6f);   // horizontal ellipse → glow spreads across the bar
         }
-
-        // Start DMX address, small, under the bar (flush with the pane bottom).
-        drawAddress (g, bar.dmxStart, x, rowY (bar.pixels), barW);
     }
 }
 
