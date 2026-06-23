@@ -108,10 +108,10 @@ float ping_pong  (double t, int barIdx, int pixel, int nPix, int nBars, float ta
 float snake      (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float sine_wave  (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float sparkle    (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
-float breathe    (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
+float tide       (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float spiral     (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float converge   (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
-float alt_swap   (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
+float stutter    (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float diag_up    (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float diag_down  (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float wave_train (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
@@ -125,13 +125,13 @@ float soft_ball  (double t, int barIdx, int pixel, int nPix, int nBars, float ta
 float aurora     (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 
 // Chases (fill).
-float snake_h    (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
+float theater    (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 
 // Breathes (fill).
 float ripple_h   (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float bloom      (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float shimmer    (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
-float sway       (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
+float smooth_shimmer (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float drift      (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 
 // Wild (fill).
@@ -163,11 +163,11 @@ RecipeRGB sunset         (double t, int barIdx, int pixel, int nPix, int nBars, 
 RecipeRGB forest         (double t, int barIdx, int pixel, int nPix, int nBars, float param) noexcept;
 RecipeRGB lava           (double t, int barIdx, int pixel, int nPix, int nBars, float param) noexcept;
 RecipeRGB borealis       (double t, int barIdx, int pixel, int nPix, int nBars, float param) noexcept;
-RecipeRGB candy          (double t, int barIdx, int pixel, int nPix, int nBars, float param) noexcept;
+RecipeRGB rouge          (double t, int barIdx, int pixel, int nPix, int nBars, float param) noexcept;
 RecipeRGB magma          (double t, int barIdx, int pixel, int nPix, int nBars, float param) noexcept;
 RecipeRGB storm          (double t, int barIdx, int pixel, int nPix, int nBars, float param) noexcept;
 RecipeRGB galaxy         (double t, int barIdx, int pixel, int nPix, int nBars, float param) noexcept;
-RecipeRGB blocks         (double t, int barIdx, int pixel, int nPix, int nBars, float param) noexcept;
+RecipeRGB velvet         (double t, int barIdx, int pixel, int nPix, int nBars, float param) noexcept;
 RecipeRGB disco          (double t, int barIdx, int pixel, int nPix, int nBars, float param) noexcept;
 RecipeRGB twilight       (double t, int barIdx, int pixel, int nPix, int nBars, float param) noexcept;
 RecipeRGB heatmap        (double t, int barIdx, int pixel, int nPix, int nBars, float param) noexcept;

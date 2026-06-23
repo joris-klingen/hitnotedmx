@@ -508,14 +508,22 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
     bool strobeHeld = false;   // drives the rig white so the driver shutter has something to chop
 
     // Global speed (G8 / kSpeedNote): its velocity scales EVERY recipe's rate —
-    // exponential, vel 64 = 1x, 0 ≈ 0.25x, 127 ≈ 4x. Absent = 1x (default speeds).
-    // While it's held, chase/wild velocity is freed from tail/beat-speed duty and
-    // instead picks the palette ROUTE (>=64 primary, <64 secondary); the
-    // strongest (highest-velocity) chase/wild wins. dynRoute feeds the colour
-    // resolution in the bar compose below.
+    // exponential, vel 64 = 1x. Absent = 1x (default speeds). The slow and fast
+    // halves use different slopes (asymmetric): the slow end reaches 0.125x at
+    // vel 0 (so the 1-cycle/beat chases drop to a stately 1 cycle / 8 beats),
+    // while the fast end stays ~3.9x at vel 127 (steeper-than-that just aliases
+    // into strobing on the breathes/multicolor banks). While it's held,
+    // chase/wild velocity is freed from tail/beat-speed duty and instead picks
+    // the palette ROUTE (>=64 primary, <64 secondary); the strongest
+    // (highest-velocity) chase/wild wins. dynRoute feeds the colour resolution
+    // in the bar compose below.
     const bool  speedHeld = state.isActive (static_cast<std::uint8_t> (kSpeedNote));
+    const float speedVel  = speedHeld
+        ? static_cast<float> (state.get (static_cast<std::uint8_t> (kSpeedNote)).velocity) - 64.0f
+        : 0.0f;
     const float gMult = speedHeld
-        ? std::pow (2.0f, (static_cast<float> (state.get (static_cast<std::uint8_t> (kSpeedNote)).velocity) - 64.0f) / 32.0f)
+        ? std::pow (2.0f, speedVel < 0.0f ? speedVel / 21.333f    // vel 0  → 0.125x (8-beat chases)
+                                          : speedVel / 32.0f)      // vel 127 → ~3.9x
         : 1.0f;
     Route dynRoute    = Route::None;
     int   dynRouteVel = -1;

@@ -40,15 +40,15 @@ std::vector<Column> build()
 
     c.push_back (trig ("Chases", kChasesStart,
         { "Chase up", "Chase dn", "Ping-pong", "Diag up", "Diag dn", "Snake",
-          "Snake H", "Spiral", "Waves", "Expand", "Contract", "Pong" }));
+          "Theater", "Spiral", "Waves", "Expand", "Contract", "Pong" }));
 
     c.push_back (trig ("Breathes", kBreathesStart,
-        { "Breathe", "Sine", "Ripple", "Ripple H", "Bloom", "Halo",
-          "Moon rise", "Soft ball", "Drift", "Aurora", "Shimmer", "Sway" }));
+        { "Tide", "Sine", "Ripple", "Ripple H", "Bloom", "Halo",
+          "Moon rise", "Soft ball", "Drift", "Aurora", "Shimmer", "Smooth shimmer" }));
 
     c.push_back (trig ("Wild", kWildStart,
         { "Strobe", "Sparkle", "Sparkle few", "Lightning", "Glitch", "Static",
-          "Rain", "Alt swap", "Bounce", "Fast ball", "Zigzag", "Converge" }));
+          "Rain", "Stutter", "Bounce", "Fast ball", "Zigzag", "Converge" }));
 
     // Multicolor spans two octaves (two columns of self-coloured recipes).
     c.push_back (trig ("Multicolor", kColorDynStart,
@@ -57,7 +57,7 @@ std::vector<Column> build()
 
     c.push_back (trig ("Multicolor", kColorDynStart + 12,
         { "Sunset", "Twilight", "Borealis", "Night sky", "Galaxy", "Nebula",
-          "Storm", "Plasma", "Police", "Disco", "Blocks", "Candy" }));
+          "Storm", "Plasma", "Police", "Disco", "Velvet", "Rouge" }));
 
     // Palettes: Primary keeps two octaves, Secondary is one octave.
     c.push_back (pal ("Prim", kPrimaryPaletteStart,      0));
