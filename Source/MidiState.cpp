@@ -26,6 +26,13 @@ void MidiState::clear() noexcept
         n.active = false;
 }
 
+void MidiState::setToUnion (const MidiState& primary, const MidiState& secondary) noexcept
+{
+    for (int p = 0; p < kNumPitches; ++p)
+        notes[p] = primary.notes[p].active ? primary.notes[p]
+                                           : secondary.notes[p];
+}
+
 bool MidiState::anyHeld() const noexcept
 {
     for (const auto& n : notes)

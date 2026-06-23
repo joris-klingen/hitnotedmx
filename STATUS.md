@@ -54,7 +54,7 @@ ENTTEC USB Pro hardware with the 228-channel rig lit (smoke test passed).
 
 | Layer | File(s) | State |
 |-------|---------|-------|
-| VST plumbing | `PluginProcessor.{h,cpp}`, `CMakeLists.txt` | **Instrument shape** (`IS_SYNTH=TRUE`, VST3 category `Instrument`): a single stereo audio **output** bus that emits silence, no audio input, MIDI input on. It loads on a MIDI track as the instrument and receives MIDI directly. The silent audio bus is what makes Live load it — the pure MIDI-effect shape (`IS_MIDI_EFFECT=TRUE`, no audio bus) did **not** load in Live, which is why we don't use it. Changing from the old audio-effect shape moved the plugin from Live's *Audio Effects* to *Instruments*, so sessions saved against the old shape must re-add it. |
+| VST plumbing | `PluginProcessor.{h,cpp}`, `CMakeLists.txt` | **Instrument shape** (`IS_SYNTH=TRUE`, VST3 category `Instrument`): a single stereo audio **output** bus that emits silence, no audio input, MIDI input on. It loads on a MIDI track as the instrument and receives MIDI directly. The silent audio bus is what makes Live load it — the pure MIDI-effect shape (`IS_MIDI_EFFECT=TRUE`, no audio bus) did **not** load in Live, which is why we don't use it. Changing from the old audio-effect shape moved the plugin from Live's *Audio Effects* to *Instruments*, so sessions saved against the old shape must re-add it. **Automatable params are now ONLY the three master controls** (LED dim / spot dim / pixel density). The old 512 per-DMX-channel `chN` params (a fossil of the pre-vocabulary RGB-automation era) were **removed**: `processBlock` rewrites all 228 rig channels from the recipe engine every block, so any host-automated/manual `chN` value was clobbered ~40–90×/s — the params did nothing for the rig while bloating saved sessions and the host automation list. Old sessions still load (APVTS ignores the stale `chN` nodes; the master params keep their string IDs). |
 | Rig | `Rig.h` | `constexpr` 4-bar × 18-pixel + 2-spot layout (228 channels: bars DMX 1–216, spots 217/223). |
 | Palette | `Palette.h` | Two separate tables. Primary `kPalette` (24 colours) spans two octaves 84–107 (C5–B6); secondary `kSecondaryPalette` (12 softer complementary accents) is one octave 108–119 (C7). `paletteColorFor(start, offset)` picks the table; `kSecondaryPaletteEnd` (120) bounds the range. |
 | Held-note tracker | `MidiState.{h,cpp}` | 128-slot array indexed by pitch. O(1) noteOn/noteOff/clear, no allocations. |
@@ -149,10 +149,11 @@ host MIDI in ─► processBlock ─► MidiState.noteOn/Off
    (C1, 12), Wild (C2, 12), Multicolor (C3–C4, 24). Multicolor recipes are
    self-coloured (`DynamicColorFn` returns RGB and overrides the palette
    route). Tables are ordered logically and match the menu columns 1:1.
-   Verified numerically (range, liveness, motion via ASCII frame renders)
-   and dispatch-mapped by unit test; tuning constants live at the top of
-   each recipe in `Recipes.cpp`. Still wants a full eyeball on real
-   hardware (TODO #4).
+   Range/finiteness + the dispatch tables are now guarded by the committed
+   **recipe-range** CTest (`tools/RecipeCheck.cpp`, run via `ctest`); liveness /
+   motion / look are eyeballed with `recipe-render` (and the future golden-image
+   net, TODO #2). Tuning constants live at the top of each recipe in
+   `Recipes.cpp`. Still wants a full eyeball on real hardware (TODO #4).
 
 7. **Transport-stopped animation (resolved).** When the host transport
    isn't playing, `processBlock` advances a free-running beat clock
@@ -196,8 +197,16 @@ clips via Init-names / Show-clips), recipe reorder + `.adg` name prefixes,
 ```bash
 cmake -S . -B build -G Xcode
 cmake --build build --config Release   # builds BOTH the VST3 and the Standalone
-ctest --test-dir build                 # mapping-frozen: live vocab matches mappings/v1.tsv
+ctest --test-dir build                 # mapping-frozen + recipe-range (see below)
 ```
+
+Two CTests run:
+- **mapping-frozen** — live vocab matches `mappings/v<N>.tsv` (drift guard).
+- **recipe-range** — drives the real recipes + `computeDmx` over a beat /
+  velocity / density sweep and fails on any non-finite or out-of-range output
+  (`tools/RecipeCheck.cpp`). A cheap engine regression net; the golden-image
+  diff (recipe *look*, not just range) is still the bigger render tool in
+  TODO #2.
 
 Always build both targets (the bare `cmake --build build` does) — building
 only one leaves the other stale, so the DAW plugin can diverge from the

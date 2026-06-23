@@ -22,7 +22,10 @@ architecture lives in [STATUS.md](STATUS.md).
    — an offline render tool (sibling to `mapping-tool`) reusing the real
    `computeDmx` engine so it can never drift, with a **headless rig rasteriser
    factored out of `DmxVisualizer`** (one drawing path → preview, golden images
-   and clip renders all match). Three uses:
+   and clip renders all match). *(The cheap half — a finite/in-range guard over
+   recipes + `computeDmx` — already shipped as the `recipe-range` CTest
+   (`tools/RecipeCheck.cpp`); what remains below is the **look** net: golden
+   images + clip GIFs.)* Three uses:
    - **Vocabulary filmstrips (golden + preview)** — sample each recipe/trigger in
      isolation → **contact-sheet PNGs** + a manifest (note → image + metadata),
      emitted as a *versioned artifact* tied to `vocab::kMappingVersion` (same
@@ -190,7 +193,8 @@ architecture lives in [STATUS.md](STATUS.md).
   smooth, magma, lava, heatmap, forest, sunset, twilight, borealis, night sky,
   galaxy, nebula, storm, plasma, police, disco, blocks, candy). Pixel zones
   gained a **Thirds** comb (pixels 1,4,7,…). Blackout reintroduced over MIDI at
-  C-2. All 48 recipes verified in range + alive + colourful by unit test.
+  C-2. All 48 recipes guarded in range + finite by the `recipe-range` CTest
+  (`tools/RecipeCheck.cpp`); "alive + colourful" is eyeballed via `recipe-render`.
 - **Piano-roll editor redesign + octave-aligned MIDI remap** — window is
   now a flat 1296×360. The trigger pane is a **transposed piano-roll grid**:
   each vocabulary section is a column (name on top), 12 rows per octave
