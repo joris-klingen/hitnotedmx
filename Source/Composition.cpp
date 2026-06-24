@@ -41,9 +41,12 @@ namespace hitnotedmx
 //                            soft = slow rise to FULL colour (advanceFade).
 //                            Brightness comes from the bar-selector layer.
 //   Master controls          Bump-white / bump-colour velocity = flash
-//                            brightness; Release velocity = bump-tail rate.
-//                            To-black / from-black velocity = their own fade
-//                            rate (127 = instant, 0 = 1 bar). Freeze: no vel.
+//                            brightness (zero sustain: flash fires on note
+//                            ONSET and decays regardless of hold). Release
+//                            velocity = bump-tail rate. To-black / from-black
+//                            velocity = their own fade rate (127 = instant,
+//                            0 = 1 bar); from-black at velocity 1 holds full
+//                            black while held. Freeze: no vel.
 //
 // Spots, blackout and freeze ignore velocity. The C8 octave's remaining free
 // notes (123–127) are pencilled in for density / soft-edge / speed note
@@ -769,14 +772,16 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
     // ---- 9. Master controls (flash bumps + to/from-black fade) -----------
     // Whole-rig overrides from the top of the keyboard:
     //   • bump white / colour — crossfade the rig toward white or the current
-    //     primary hue (velocity = flash brightness). Instant attack; on release
-    //     a tail decays back to the *scene* (not to black), so a flash over a
-    //     wash settles back into it.
+    //     primary hue (velocity = flash brightness). ZERO SUSTAIN: the flash
+    //     fires on each note ONSET and immediately decays back to the *scene*
+    //     (not to black) — holding the note longer does not sustain it, so only
+    //     the note start matters (easier to MIDI-program).
     //   • to black — snaps to the full scene on each note's ONSET then falls to
     //     black while held; from black — snaps to instant black on its ONSET
-    //     then rises. BOTH reset to the scene when the note ENDS, per-note (so a
-    //     note on every beat restarts it). Spots excluded — only blackout (C-2)
-    //     darkens them.
+    //     then rises, EXCEPT at velocity 1, where it holds full black while held
+    //     (lay black down first, then reveal with a higher-velocity note). BOTH
+    //     reset to the scene when the note ENDS, per-note (so a note on every
+    //     beat restarts it). Spots excluded — only blackout (C-2) darkens them.
     // Bump tails glide at the Release note's velocity; to/from-black glide at
     // their OWN note's velocity (127 = instant, 0 = one bar). State lives in
     // `bump`, advanced in beat-time so the timing is tempo-relative.
@@ -799,17 +804,33 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
             ? static_cast<float> (state.get (static_cast<std::uint8_t> (kReleaseNote)).velocity)
             : 127.0f);
 
+        // Zero-sustain flash: the bump fires on the note's ONSET (keyed off the
+        // held note's start beat, so back-to-back clip notes still re-trigger)
+        // and then ALWAYS decays — even while the note is still held — so the
+        // hold length is irrelevant and you only program the note start. The
+        // decay rate is the "Release" note's velocity (bumpRate).
         auto advance = [&] (BumpState::Env& e, int note)
         {
+            bool onset = false;
             if (state.isActive (static_cast<std::uint8_t> (note)))
             {
-                e.level  = 1.0f;   // instant attack
-                e.amount = static_cast<float> (state.get (static_cast<std::uint8_t> (note)).velocity) / 127.0f;
+                const auto& n = state.get (static_cast<std::uint8_t> (note));
+                if (n.startBeat != e.lastStart)   // new onset → instant flash
+                {
+                    e.level     = 1.0f;           // instant attack
+                    e.amount    = static_cast<float> (n.velocity) / 127.0f;
+                    e.lastStart = n.startBeat;
+                    onset = true;
+                }
             }
-            else if (e.level > 0.0f)
+            else
             {
-                e.level = std::max (0.0f, e.level - bumpRate);
+                e.lastStart = -1.0;   // released → next note-on is a fresh onset
             }
+            // Decay from the onset regardless of hold; skip the onset block so
+            // the peak flash renders at full before it starts falling.
+            if (! onset && e.level > 0.0f)
+                e.level = std::max (0.0f, e.level - bumpRate);
         };
         advance (bump->white,  kBumpWhiteNote);
         advance (bump->colour, kBumpColorNote);
@@ -823,6 +844,13 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
         //     back up to the scene at the from-black velocity: a "reveal".
         const bool toBlackHeld   = state.isActive (static_cast<std::uint8_t> (kToBlackNote));
         const bool fromBlackHeld = state.isActive (static_cast<std::uint8_t> (kFromBlackNote));
+
+        // From-black at velocity 1 is a "hold black" sentinel: instead of rising
+        // back to the scene it stays fully black for as long as it's held. This
+        // lets you lay black down first (a vel-1 from-black note) and then reveal
+        // with a higher-velocity from-black note that ramps up. Vel >= 2 rises.
+        const bool fromBlackHold = fromBlackHeld
+            && state.get (static_cast<std::uint8_t> (kFromBlackNote)).velocity <= 1;
 
         // Each new note re-triggers, keyed off the held note's START BEAT (so
         // back-to-back clip notes, which never read as "released" between them,
@@ -863,7 +891,9 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
         // note starts fresh (each beat re-snaps to black / restarts the fade).
         if (toBlackHeld || fromBlackHeld)
         {
-            const float blackTarget = toBlackHeld ? 1.0f : 0.0f;
+            // to-black → black; from-black → scene, unless the vel-1 "hold
+            // black" sentinel keeps the target at full black.
+            const float blackTarget = (toBlackHeld || fromBlackHold) ? 1.0f : 0.0f;
             const float blackRate   = ratePerBlock (bump->blackVel);
             if (bump->blackLevel < blackTarget) bump->blackLevel = std::min (blackTarget, bump->blackLevel + blackRate);
             else                                bump->blackLevel = std::max (blackTarget, bump->blackLevel - blackRate);

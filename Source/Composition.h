@@ -61,16 +61,21 @@ struct SelectionMask
 // Persistent state for the master controls, advanced in beat-time by computeDmx
 // (analogous to ColorFadeState — the notes are gone after release, so the
 // envelopes have to live across blocks).
-//   • white / colour: momentary flash bumps. `level` snaps to 1 on note-on
-//     (instant attack) and decays to 0 on release over the "Release" time;
-//     `amount` is the captured velocity (flash brightness).
+//   • white / colour: zero-sustain flash bumps. `level` snaps to 1 on each
+//     note ONSET (keyed off `lastStart`, the note's start beat) and then
+//     decays to 0 over the "Release" time REGARDLESS of how long the note is
+//     held — the hold length is irrelevant, so you only program the note
+//     start. `amount` is the captured velocity (flash brightness).
 //   • blackLevel / blackTarget: the to/from-black master fader. "To black"
 //     sets the target to 1, "From black" to 0; `blackLevel` glides toward it
-//     at the same Release rate. Output is scaled by (1 - blackLevel).
+//     at the same Release rate. Output is scaled by (1 - blackLevel). A
+//     from-black note at velocity 1 is a "hold black" sentinel: it stays fully
+//     black while held instead of rising, so you can lay black down first and
+//     reveal with a higher-velocity from-black note.
 // Pass nullptr to disable the master controls (e.g. the offline render tool).
 struct BumpState
 {
-    struct Env { float level = 0.0f; float amount = 0.0f; };
+    struct Env { float level = 0.0f; float amount = 0.0f; double lastStart = -1.0; };
     Env white, colour;
     float  blackLevel = 0.0f;       // 0 = scene, 1 = full black (to/from-black fader)
     float  blackVel   = 127.0f;     // captured to/from-black note velocity → fade rate
@@ -119,11 +124,15 @@ struct BumpState
 //   • Freeze (124) returns BEFORE the clear, so `out` holds the previous
 //     frame untouched while held (blackout still dominates freeze).
 //   • Bump-white (120) / bump-colour (121) crossfade the whole frame toward
-//     white / the current primary hue (velocity = brightness): instant attack,
-//     release tail back to the scene. To-black (122) fades the BARS (Multicolor
+//     white / the current primary hue (velocity = brightness). ZERO SUSTAIN:
+//     each note ONSET fires an instant flash that immediately decays back to
+//     the scene — holding the note longer does NOT sustain the flash, so only
+//     the note start matters. To-black (122) fades the BARS (Multicolor
 //     included; spots excluded — only blackout C-2 takes the spots dark) snaps
 //     to the full scene on each note's onset then falls to black; from-black
-//     (123) snaps to instant black on its onset then rises. BOTH reset to the
+//     (123) snaps to instant black on its onset then rises — EXCEPT at velocity
+//     1, where it holds full black while held (a "stay black" sentinel so you
+//     can lay black down before a higher-velocity reveal). BOTH reset to the
 //     scene when the note ends (per-note via
 //     start beat, so a note on every beat restarts it). To/from-black glide at
 //     their OWN note's velocity; the
