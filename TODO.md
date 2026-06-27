@@ -6,14 +6,45 @@ entries (and code comments) cross-reference them.
 
 ## Show prep — recipe tuning
 
-1. **Recipe-bank refinement (Disco + tuning pass)** — the recipes are tuned on
-   hardware and read well. Remaining items:
+1. **Recipe-bank refinement (tuning pass)** — the recipes are tuned on hardware
+   and read well. Single-constant tweaks (speeds, band widths, gaussian radii,
+   hue ramps) live in `Recipes.cpp`; see #2 for the automated quality net
+   (`recipe-range`).
+
+   **Per-recipe tuning** (no note / name change):
    - **Disco — time it to the beat.** Today it free-runs; lock its colour
      switches / motion to the beat grid so it pulses in time with the song.
    - **VU-meter low-level feel:** only the *lowest* LED should dim at very low
      signal (today a fixed 2-pixel floor with a fast per-beat release).
-   Speeds, band widths, gaussian radii and hue ramps are single-constant tweaks
-   in `Recipes.cpp`. See #2 for the automated quality net (`recipe-range`).
+   - **Moon rise** — the moons sit too close; widen the gaps so there's more
+     black between them, and add a bit of diagonal drift to the motion.
+   - **Tide** — add a diagonal wave component so it isn't purely horizontal
+     (a bit like VU smooth).
+   - **Glow** (the renamed Smooth shimmer — see reshuffle) — a touch more
+     shimmer and stronger gradients.
+   - **Burst** (the renamed Converge — see reshuffle) — tune to a clean,
+     perfectly centred circle expanding from the middle.
+
+   **Vocabulary reshuffle — renames + note moves + 2 new recipes.** These change
+   what notes *mean*, so they ship together behind ONE mapping freeze (bump
+   `vocab::kMappingVersion`, re-dump `mappings/v<N>.tsv`; see
+   `mappings/README.md`). Update `Source/TriggerVocabulary.cpp` labels +
+   `Source/Recipes.cpp` dispatch tables in step. *(Revised after the master
+   remap: the old Spiral up/dn pairing is dropped — the global **Reverse** note
+   handles direction now, and Chase/Diag are already single recipes with notes
+   25/28 freed.)*
+   - **Renames:** Converge → **Burst** (tune to the clean expanding circle),
+     Smooth shimmer → **Glow**.
+   - **Wild:** **Pong** moves in at note 58, replacing **Zigzag** (dropped) — it
+     then takes Wild's beat-synced velocity, not the chase tail; new
+     **Waterfalls** recipe at note 55, replacing **Stutter**.
+   - **Chases:** **Pong** leaving frees note 35 (joins the freed 25/28); Theater
+     stays at 30, Spiral stays single at 31 (reverse via the Reverse note). Open:
+     what to put in the freed Chase slots (25/28/35) — "new ones later".
+   - Resulting columns — **Chases:** Chase, –, Ping-pong, Diag, –, Snake,
+     Theater, Spiral, Waves, Expand, Contract, – . **Wild:** Strobe, Sparkle,
+     Sparkle few, Lightning, Glitch, Static, Rain, Waterfalls, Bounce, Fast ball,
+     Pong, Burst.
 
 ## Tooling & tests
 
@@ -49,6 +80,22 @@ entries (and code comments) cross-reference them.
      visuals; the authoritative C++ engine renders once, the Python tool consumes
      the result. **Pin before either side depends on it:** the CLI signature, the
      manifest schema, and the image/GIF layout.
+
+8. **Clip remigrator (`mapping-tool` subcommand)** — convert MIDI clips authored
+   against an old mapping version to a newer one. **MIDI-note based, not
+   chainName based:** carry an explicit per-transition note → note remap table
+   (drop / keep / move), authored at each freeze. Name-based matching is too
+   fragile here — versions routinely rename and *repurpose notes in place*, so a
+   chainName diff silently loses them. The v7 → v8 remap is the case in point:
+   122 (To black) → 10, 123 (From black) → 9, while 122/123/125 were *reused* for
+   Crossfade / free / Reverse and 120/121/24/27 were renamed in place
+   (Bump white→Bump, Bump color→Release, Chase up→Chase, Diag up→Diag) — none of
+   which a name match could follow. Lands as the `convert --from v<N>` subcommand
+   in `mappings/README.md` (whose current text still describes the *name*-based
+   plan — supersede it), reusing the frozen `mappings/v<N>.tsv` snapshots. Open:
+   compose multi-step hops (v6→v8) vs one table per adjacent pair; what to do
+   with dropped notes (warn / strip / leave); whether a dropped directional note
+   (e.g. old Chase dn) auto-rewrites to its base + a Reverse note.
 
 ## Feature backlog — playable notes / behaviours
 

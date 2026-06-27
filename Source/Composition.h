@@ -61,26 +61,39 @@ struct SelectionMask
 // Persistent state for the master controls, advanced in beat-time by computeDmx
 // (analogous to ColorFadeState — the notes are gone after release, so the
 // envelopes have to live across blocks).
-//   • white / colour: zero-sustain flash bumps. `level` snaps to 1 on each
-//     note ONSET (keyed off `lastStart`, the note's start beat) and then
-//     decays to 0 over the "Release" time REGARDLESS of how long the note is
-//     held — the hold length is irrelevant, so you only program the note
-//     start. `amount` is the captured velocity (flash brightness).
-//   • blackLevel / blackTarget: the to/from-black master fader. "To black"
-//     sets the target to 1, "From black" to 0; `blackLevel` glides toward it
-//     at the same Release rate. Output is scaled by (1 - blackLevel). A
-//     from-black note at velocity 1 is a "hold black" sentinel: it stays fully
-//     black while held instead of rising, so you can lay black down first and
-//     reveal with a higher-velocity from-black note.
+//   • flash: the single zero-sustain bump. `level` snaps to 1 on each note
+//     ONSET (keyed off `lastStart`, the note's start beat) and then decays to 0
+//     over the Release length REGARDLESS of how long the note is held — the hold
+//     length is irrelevant, so you only program the note start. `amount` is the
+//     captured velocity (flash brightness). Target is white, or the primary hue
+//     when one is held.
+//   • blackLevel / blackVel: the to/from-black master fader. "To black" targets
+//     1, "From black" 0; `blackLevel` glides toward it at the note's velocity.
+//     Output is scaled by (1 - blackLevel). A from-black note at velocity 1 is a
+//     "hold black" sentinel: it stays fully black while held instead of rising.
+//   • xfade: the crossfade buffer — the displayed bar RGB (kNumBars × kPixelsPerBar
+//     × 3), slewed toward the composed scene while the Crossfade note is held.
 // Pass nullptr to disable the master controls (e.g. the offline render tool).
 struct BumpState
 {
     struct Env { float level = 0.0f; float amount = 0.0f; double lastStart = -1.0; };
-    Env white, colour;
+    Env flash;
     float  blackLevel = 0.0f;       // 0 = scene, 1 = full black (to/from-black fader)
     float  blackVel   = 127.0f;     // captured to/from-black note velocity → fade rate
     double lastFromBlackStart = -1.0;  // start beat of the live from-black note (per-note onset)
     double lastToBlackStart   = -1.0;  // start beat of the live to-black note (per-note onset)
+
+    // Crossfade: the displayed bar frame, slewed toward the scene (bars only).
+    std::array<float, kNumBars * kPixelsPerBar * 3> xfade {};
+    bool   xfadeHave = false;       // false = (re)initialise to the scene next block
+
+    // Real reverse: the phase clock for the reversible movers (chases/breathes).
+    // Integrates the beat delta forward, or backward while the Reverse note is
+    // held, so they retrace from the current state; kept >= 0 (recipes wrap on
+    // non-negative t). A clock, like animBeats — NOT cleared by reset().
+    double recipePhase    = 0.0;
+    double lastPhaseBeats = 0.0;
+    bool   havePhase      = false;
 
     // Animation clock that PAUSES while freeze is held, so releasing freeze
     // continues exactly from the frozen frame (rather than jumping to where the
@@ -93,8 +106,8 @@ struct BumpState
     double lastBeats = 0.0;     // last animBeats seen by the bump-tail delta
     bool   haveLast  = false;
 
-    // Clears the transient flash tails; the to/from-black fade level persists.
-    void reset() noexcept { white = colour = Env {}; haveLast = false; }
+    // Clears the transient flash tail + crossfade; the to/from-black level persists.
+    void reset() noexcept { flash = Env {}; haveLast = false; xfadeHave = false; }
 };
 
 // Compute per-channel DMX state at the given playhead time:
@@ -119,25 +132,26 @@ struct BumpState
 // for every audio block (DMX channels never inherit stale state from
 // a previous block). Channels outside the rig footprint are untouched.
 //
-// Master / global hits at the top of the keyboard are the exceptions to
-// "fully written each block":
-//   • Freeze (124) returns BEFORE the clear, so `out` holds the previous
+// Master / global hits are the exceptions to "fully written each block":
+//   • Freeze (123) returns BEFORE the clear, so `out` holds the previous
 //     frame untouched while held (blackout still dominates freeze).
-//   • Bump-white (120) / bump-colour (121) crossfade the whole frame toward
-//     white / the current primary hue (velocity = brightness). ZERO SUSTAIN:
-//     each note ONSET fires an instant flash that immediately decays back to
-//     the scene — holding the note longer does NOT sustain the flash, so only
-//     the note start matters. To-black (122) fades the BARS (Multicolor
-//     included; spots excluded — only blackout C-2 takes the spots dark) snaps
-//     to the full scene on each note's onset then falls to black; from-black
-//     (123) snaps to instant black on its onset then rises — EXCEPT at velocity
-//     1, where it holds full black while held (a "stay black" sentinel so you
-//     can lay black down before a higher-velocity reveal). BOTH reset to the
-//     scene when the note ends (per-note via
-//     start beat, so a note on every beat restarts it). To/from-black glide at
-//     their OWN note's velocity; the
-//     Release note (125) velocity sets the bump-tail rate (both 127 = instant,
-//     0 = one bar). See BumpState / section 9.
+//   • Flip (125) mirrors recipe direction (mirrored sampling coords — instant
+//     spatial flip); Reverse (124) runs the chases/breathes phase clock backward
+//     so they retrace from the current state (Wild/Multicolor keep absolute
+//     time); Spread (126) phase-offsets each bar's clock; Speed (127) scales it.
+//   • Crossfade (122) slews the BAR frame toward the composed scene so look
+//     changes glide (velocity = fade length); bars only.
+//   • Bump (120) flashes the whole frame toward white, or the primary hue if
+//     one is held (velocity = brightness). ZERO SUSTAIN: each note ONSET fires
+//     an instant flash that decays back to the scene regardless of hold, so
+//     only the note start matters; the Release note (121) velocity sets the
+//     release length (1/16 note .. 1 bar). To-black (10, A#-2) fades the BARS
+//     (spots excluded — only blackout C-2 takes the spots dark) from the scene
+//     to black; from-black (9, A-2) snaps to black then rises — EXCEPT at
+//     velocity 1, where it holds full black (a "stay black" sentinel). BOTH
+//     reset to the scene when the note ends (per-note via start beat, so a note
+//     on every beat restarts it), gliding at their OWN note's velocity (127 =
+//     instant, 0 = one bar). See BumpState / section 9.
 //
 // `ledMasterDim` (0..1) scales every bar pixel's RGB output; the spot
 // fixtures' master intensity (their dimmer channel) is scaled by

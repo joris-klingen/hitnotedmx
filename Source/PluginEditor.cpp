@@ -194,13 +194,12 @@ HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioP
     // Compact tile labels — the full names stay in the vocabulary (rack/mapping).
     auto tileLabel = [] (const juce::String& full) -> juce::String
     {
-        if (full == "Bump white") return "bmp wh";
-        if (full == "Bump color") return "bmp cl";
-        if (full == "To black")   return "to blk";
-        if (full == "From black") return "fr blk";
-        if (full == "Release")    return "rel";
-        if (full == "Speed")      return "spd";
-        return full;   // Freeze
+        // Abbreviate only the names that overflow the narrow tile (~6 chars);
+        // the rest show in full. First-Cap throughout, matching the menu cells.
+        if (full == "Crossfade") return "Xfade";
+        if (full == "Reverse")   return "Rev";
+        if (full == "Release")   return "Rel";
+        return full;   // Bump, Freeze, Flip, Spread, Speed
     };
 
     for (int i = 0; i < kMasterTiles; ++i)
@@ -216,18 +215,19 @@ HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioP
             t.setButtonText (tileLabel (full));
             t.getProperties().set ("note", noteLabel (pitch));   // shown right-aligned
 
-            // Bumps + the to/from-black fades are MOMENTARY (held while pressed,
-            // released on mouse-up so the tail / fade proceeds). Release, Freeze
-            // and Speed are latched settings/states.
-            if (full == "Release" || full == "Freeze" || full == "Speed")
-            {
-                t.setClickingTogglesState (true);
-                t.onClick = [this, pitch, btn = &t] { setMasterNote (pitch, btn->getToggleState()); };
-            }
-            else
+            // Only "Bump" is MOMENTARY (held while pressed, released on mouse-up
+            // so the tail proceeds). Release / Crossfade / Freeze / Reverse /
+            // Flip / Spread / Speed are latched settings/states. (To/from-black
+            // moved to the Spots & bars menu column and latch like any trigger.)
+            if (full == "Bump")
             {
                 t.momentary = true;
                 t.onMomentary = [this, pitch] (bool down) { setMasterNote (pitch, down); };
+            }
+            else
+            {
+                t.setClickingTogglesState (true);
+                t.onClick = [this, pitch, btn = &t] { setMasterNote (pitch, btn->getToggleState()); };
             }
         }
         else

@@ -32,14 +32,14 @@ std::vector<Column> build()
     // Octave -2: total blackout (C-2) at the bottom, spots + bars above.
     c.push_back (trig ("Spots & bars", kSpotBarOctave,
         { "Blackout", "Spot L WW", "Spot L col", "Spot R WW", "Spot R col",
-          "Bar 1", "Bar 2", "Bar 3", "Bar 4" }));
+          "Bar 1", "Bar 2", "Bar 3", "Bar 4", "From black", "To black" }));
 
     c.push_back (trig ("Zones", kZonesStart,
         { "Zone 1", "Zone 2", "Zone 3", "Zone 4", "Zone 5", "Zone 6",
           "Zone 7", "Zone 8", "Zone 9", "Even", "Odd", "Thirds" }));
 
     c.push_back (trig ("Chases", kChasesStart,
-        { "Chase up", "Chase dn", "Ping-pong", "Diag up", "Diag dn", "Snake",
+        { "Chase", "", "Ping-pong", "Diag", "", "Snake",
           "Theater", "Spiral", "Waves", "Expand", "Contract", "Pong" }));
 
     c.push_back (trig ("Breathes", kBreathesStart,
@@ -65,14 +65,16 @@ std::vector<Column> build()
     c.push_back (pal ("Sec",  kSecondaryPaletteStart,    0));
 
     // Master / global controls above the palette. Not per-fixture triggers;
-    // computeDmx handles them as whole-rig overrides. The bumps flash the whole
-    // frame (velocity = brightness); "To black" / "From black" glide the rig to
-    // black and back; "Release" velocity sets how fast the bump tails decay and
-    // the to/from-black fades glide (127 = instant, 0 = one bar); Freeze holds
-    // the current frame while held; "Speed" (G8) velocity is the global recipe-
-    // speed multiplier. F#8 (126, empty label) is left free between them.
+    // computeDmx handles them as whole-rig overrides. Two rows: a "frame" row
+    // (Bump flashes the frame — white, or the primary hue if one is held,
+    // velocity = brightness, zero sustain; Release sets the bump release length;
+    // Crossfade sets a bar fade time so look changes glide; Freeze holds the
+    // frame) and a "motion" row (Reverse retraces chases/breathes from the
+    // current state; Flip mirrors recipe direction; Spread phase-offsets the
+    // bars; Speed (G8) is the global recipe-speed multiplier). (To/from-black
+    // are bar-level masks, in the Spots & bars octave above.)
     c.push_back (trig ("Master", kMasterStart,
-        { "Bump white", "Bump color", "To black", "From black", "Freeze", "Release", "", "Speed" }));
+        { "Bump", "Release", "Crossfade", "Freeze", "Reverse", "Flip", "Spread", "Speed" }));
 
     return c;
 }
@@ -86,6 +88,9 @@ juce::String prefixFor (const juce::String& title, const juce::String& label)
         if (label == "Blackout")      return "bk";
         if (label.startsWith ("Spot")) return "sp";
         if (label.startsWith ("Bar"))  return "ba";
+        // To/from-black are master fades that live in this octave; keep the "ms"
+        // chain-name key stable so clips migrate across the move by chainName.
+        if (label == "From black" || label == "To black") return "ms";
         return {};
     }
     if (title == "Zones")      return "pz";
