@@ -124,12 +124,9 @@ void checkColorBank()
 void checkDispatch()
 {
     // Brightness banks: every pitch resolves, except the strobe slot (null by
-    // design — it's a driver-level shutter, not a per-pixel recipe) and the two
-    // empty Chase slots (25 old Chase dn, 28 old Diag dn — reverse is the global
-    // Reverse note now).
+    // design — it's a driver-level shutter, not a per-pixel recipe).
     for (int p = kChasesStart; p < kChasesStart + kNumChases; ++p)
-        if (p != kChasesStart + 1 && p != kChasesStart + 4 && getDynamicRecipe (p) == nullptr)
-            fail ("Chases dispatch null at " + juce::String (p));
+        if (getDynamicRecipe (p) == nullptr) fail ("Chases dispatch null at " + juce::String (p));
     for (int p = kBreathesStart; p < kBreathesStart + kNumBreathes; ++p)
         if (getDynamicRecipe (p) == nullptr) fail ("Breathes dispatch null at " + juce::String (p));
     for (int p = kWildStart; p < kWildStart + kNumWild; ++p)

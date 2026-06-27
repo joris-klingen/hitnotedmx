@@ -65,6 +65,7 @@ inline constexpr int kSparklePitch    = kWildStart + 1;      // 49
 inline constexpr int kSparkleFewPitch = kWildStart + 2;      // 50
 inline constexpr int kRipplePitch     = kBreathesStart + 2;  // 38
 inline constexpr int kVuMeterPitch    = kColorDynStart + 2;  // 62
+inline constexpr int kDiscoPitch      = kColorDynStart + 21; // 81 (beat-locked like VU meter)
 
 using DynamicFn = float (*) (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 
@@ -110,7 +111,7 @@ float sine_wave  (double t, int barIdx, int pixel, int nPix, int nBars, float ta
 float sparkle    (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float tide       (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float spiral     (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
-float converge   (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
+float burst      (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float stutter    (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float diag_up    (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float diag_down  (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
@@ -126,12 +127,15 @@ float aurora     (double t, int barIdx, int pixel, int nPix, int nBars, float ta
 
 // Chases (fill).
 float theater    (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
+float comets     (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
+float radar      (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
+float fountain   (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 
 // Breathes (fill).
 float ripple_h   (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float bloom      (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float shimmer    (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
-float smooth_shimmer (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
+float glow       (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float drift      (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 
 // Wild (fill).
@@ -139,7 +143,7 @@ float lightning    (double t, int barIdx, int pixel, int nPix, int nBars, float 
 float static_noise (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float glitch       (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float bounce       (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
-float zigzag       (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
+float waterfalls   (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float sparkle_few  (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float fast_ball    (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float pong         (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
