@@ -1007,11 +1007,11 @@ namespace
 // Order is grouped by motion/feel (vertical → diagonal → snakes → helix/wave →
 // radial → game). MUST match the menu label lists in TriggerMenu.cpp.
 constexpr std::array<DynamicFn, kNumChases> kChasesTable {{
-    &chase_up,    // 24
-    &chase_down,  // 25
+    &chase_up,    // 24  (Chase — default up; Reverse note flips it)
+    nullptr,      // 25  — empty (old Chase dn; reverse via the Reverse note now)
     &ping_pong,   // 26
-    &diag_up,     // 27
-    &diag_down,   // 28
+    &diag_up,     // 27  (Diag — default up; Reverse note flips it)
+    nullptr,      // 28  — empty (old Diag dn; reverse via the Reverse note now)
     &snake,       // 29
     &theater,     // 30
     &spiral,      // 31

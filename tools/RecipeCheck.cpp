@@ -124,9 +124,12 @@ void checkColorBank()
 void checkDispatch()
 {
     // Brightness banks: every pitch resolves, except the strobe slot (null by
-    // design — it's a driver-level shutter, not a per-pixel recipe).
+    // design — it's a driver-level shutter, not a per-pixel recipe) and the two
+    // empty Chase slots (25 old Chase dn, 28 old Diag dn — reverse is the global
+    // Reverse note now).
     for (int p = kChasesStart; p < kChasesStart + kNumChases; ++p)
-        if (getDynamicRecipe (p) == nullptr) fail ("Chases dispatch null at " + juce::String (p));
+        if (p != kChasesStart + 1 && p != kChasesStart + 4 && getDynamicRecipe (p) == nullptr)
+            fail ("Chases dispatch null at " + juce::String (p));
     for (int p = kBreathesStart; p < kBreathesStart + kNumBreathes; ++p)
         if (getDynamicRecipe (p) == nullptr) fail ("Breathes dispatch null at " + juce::String (p));
     for (int p = kWildStart; p < kWildStart + kNumWild; ++p)
@@ -206,16 +209,20 @@ int main()
     checkComposite ("bars",   { 5, 6, 7, 8 });
     checkComposite ("zones",  { 12, 15, 20, 21, 22, 23 });
     checkComposite ("spots",  { 1, 2, 3, 4 });
-    checkComposite ("bump white",  { 120 });
-    checkComposite ("bump color",  { 121, 84 });
-    checkComposite ("to black",    { 122, 84 });
-    checkComposite ("from black",  { 123, 84 });
-    checkComposite ("freeze",      { 124, 24 });
-    checkComposite ("release",     { 125, 120 });
+    checkComposite ("bump",        { 120 });
+    checkComposite ("bump rel",    { 121, 120 });
+    checkComposite ("crossfade",   { 122, 24 });
+    checkComposite ("to black",    { 10, 84 });
+    checkComposite ("from black",  { 9, 84 });
+    checkComposite ("freeze",      { 123, 24 });
+    checkComposite ("reverse",     { 124, 24 });      // real reverse + a chase
+    checkComposite ("reverse breathe", { 124, 36 });  // + a breathe (also reversible)
+    checkComposite ("flip",        { 125, 24 });
+    checkComposite ("spread",      { 126, 24 });
     checkComposite ("speed",       { 127, 24, 48 });
     checkComposite ("two colors",  { 60, 72 });
     checkComposite ("kitchen sink",
-        { 5, 6, 7, 8, 15, 24, 48, 62, 84, 108, 1, 3, 120, 122, 127 });
+        { 5, 6, 7, 8, 15, 24, 48, 62, 84, 108, 1, 3, 9, 10, 120, 121, 122, 123, 124, 125, 126, 127 });
 
     if (gFailures == 0)
     {
