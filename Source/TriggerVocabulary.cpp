@@ -39,16 +39,16 @@ std::vector<Column> build()
           "Zone 7", "Zone 8", "Zone 9", "Even", "Odd", "Thirds" }));
 
     c.push_back (trig ("Chases", kChasesStart,
-        { "Chase", "", "Ping-pong", "Diag", "", "Snake",
-          "Theater", "Spiral", "Waves", "Expand", "Contract", "Pong" }));
+        { "Chase", "Comets", "Ping-pong", "Diag", "Radar", "Snake",
+          "Theater", "Spiral", "Waves", "Expand", "Contract", "Fountain" }));
 
     c.push_back (trig ("Breathes", kBreathesStart,
         { "Tide", "Sine", "Ripple", "Ripple H", "Bloom", "Halo",
-          "Moon rise", "Soft ball", "Drift", "Aurora", "Shimmer", "Smooth shimmer" }));
+          "Moon rise", "Soft ball", "Drift", "Aurora", "Shimmer", "Glow" }));
 
     c.push_back (trig ("Wild", kWildStart,
         { "Strobe", "Sparkle", "Sparkle few", "Lightning", "Glitch", "Static",
-          "Rain", "Stutter", "Bounce", "Fast ball", "Zigzag", "Converge" }));
+          "Rain", "Waterfalls", "Bounce", "Fast ball", "Pong", "Burst" }));
 
     // Multicolor spans two octaves (two columns of self-coloured recipes).
     c.push_back (trig ("Multicolor", kColorDynStart,

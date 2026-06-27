@@ -110,6 +110,48 @@ float ping_pong (double t, int /*barIdx*/, int pixel, int nPix, int /*nBars*/, f
     return cometBrightness (behind, nPix, tail);
 }
 
+float comets (double t, int /*barIdx*/, int pixel, int nPix, int /*nBars*/, float tail) noexcept
+{
+    // A multi-head Chase: three evenly-spaced comet heads climb the bar at
+    // once (same speed as Chase). Each head's tail is scaled to the inter-head
+    // gap (nPix / nHeads), so velocity morphs the look from three crisp dots
+    // (tail 0) to a continuous wash where the tails tile end-to-end (tail 1).
+    constexpr int nHeads = 3;
+    const int gap = nPix / nHeads;
+    const int pos = static_cast<int> (t * nPix) % nPix + 1;   // lead head 1..nPix
+    float v = 0.0f;
+    for (int k = 0; k < nHeads; ++k)
+    {
+        const int head = (pos - 1 + k * gap) % nPix + 1;
+        v = std::max (v, cometBrightness (behindWrapped (head, pixel, nPix, +1), gap, tail));
+    }
+    return v;
+}
+
+float fountain (double t, int barIdx, int pixel, int nPix, int /*nBars*/, float tail) noexcept
+{
+    // Water jets shooting UP from the bottom: a head launches twice a beat
+    // (two in flight, staggered per bar), rising fast with a trail behind it and
+    // FADING toward the top, like a fountain losing energy. Velocity = trail
+    // length. Per-bar hashed phase so the jets don't all fire together.
+    const float ph       = hash01 (static_cast<std::uint32_t> (barIdx) * 2654435761u);
+    const float trailLen = 1.0f + tail * static_cast<float> (nPix) * 0.5f;
+    const float top      = static_cast<float> (nPix) + 3.0f;     // head exits past the top
+    float v = 0.0f;
+    for (int k = 0; k < 2; ++k)
+    {
+        const double pos   = t + static_cast<double> (ph) + k * 0.5;        // staggered launches
+        const float  local = static_cast<float> (pos - std::floor (pos));   // 0..1 within this jet's life
+        const float  head  = local * top;                                   // climbs from 0 past the top
+        const float  d     = head - static_cast<float> (pixel - 1);         // cell's distance below the head
+        if (d < 0.0f || d > trailLen)
+            continue;
+        const float fade = std::max (0.0f, 1.0f - static_cast<float> (pixel) / static_cast<float> (nPix));
+        v = std::max (v, (1.0f - d / trailLen) * fade);   // trail fade × dims toward the top
+    }
+    return v;
+}
+
 float snake (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept
 {
     const int total = nBars * nPix;
@@ -140,43 +182,49 @@ float sparkle (double t, int barIdx, int pixel, int /*nPix*/, int /*nBars*/, flo
     return h > 0.72f ? (1.0f - frac) : 0.0f;
 }
 
-float tide (double t, int /*barIdx*/, int pixel, int nPix, int /*nBars*/, float /*tail*/) noexcept
+float tide (double t, int barIdx, int pixel, int nPix, int /*nBars*/, float /*tail*/) noexcept
 {
     // A soft fill LEVEL that swells up the bars and recedes (~6-beat period),
-    // with a soft surface. Spatial — so it's distinct from a flat whole-rig
-    // fade (which you'd do with the to/from-black master notes instead).
+    // with a soft surface. Spatial — distinct from a flat whole-rig fade. A
+    // slow per-bar wave tilts and ripples the waterline diagonally across the
+    // bars (à la VU smooth) so it isn't a flat horizontal line.
     const float y     = (static_cast<float> (pixel) - 0.5f) / static_cast<float> (nPix);   // 0 bottom..1 top
-    const float level = 0.30f + 0.55f * (0.5f - 0.5f * std::cos (kTwoPi * static_cast<float> (t) / 6.0f));
+    const float base  = 0.30f + 0.50f * (0.5f - 0.5f * std::cos (kTwoPi * static_cast<float> (t) / 6.0f));
+    const float wave  = 0.10f * std::sin (kTwoPi * (0.35f * static_cast<float> (t) + static_cast<float> (barIdx) * 0.6f));
+    const float level = base + wave;
     return std::clamp ((level - y) / 0.12f + 1.0f, 0.0f, 1.0f);   // solid below the surface, soft above
 }
 
 float spiral (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept
 {
     // Barber-pole helix: a diagonal stripe winding around the bars as it
-    // climbs, scrolling upward over time. The trail (tail) thickens the stripe.
+    // climbs, scrolling UPWARD over time (default up, like the other chases;
+    // Flip/Reverse turn it around). The trail (tail) thickens the stripe.
     const float turns = 1.5f;
     const float helix = static_cast<float> (barIdx) / static_cast<float> (nBars)
                       - static_cast<float> (pixel - 1) / static_cast<float> (nPix) * turns
-                      - static_cast<float> (t) * 0.5f;
+                      + static_cast<float> (t) * 0.5f;
     const float frac  = helix - std::floor (helix);          // 0..1 around the pole
     const float width = 0.12f + 0.25f * tail;                // velocity → stripe thickness
     const float d     = std::min (frac, 1.0f - frac);
     return d < width ? 1.0f - d / width : 0.0f;
 }
 
-float converge (double t, int barIdx, int pixel, int nPix, int nBars, float /*tail*/) noexcept
+float burst (double t, int barIdx, int pixel, int nPix, int nBars, float /*tail*/) noexcept
 {
-    // Grid-aware burst: a CIRCULAR front expands from the grid centre outward
-    // (radial distance in normalised grid space, so it reads as a round ring on
-    // the rig), filling the grid in one beat, then resets and bursts again. The
-    // leading edge has a tiny soft ramp; the disc fills solid behind it.
-    const float x = nBars > 1 ? static_cast<float> (barIdx) / static_cast<float> (nBars - 1) : 0.5f;
-    const float y = (static_cast<float> (pixel) - 0.5f) / static_cast<float> (nPix);
-    const float dx = x - 0.5f, dy = y - 0.5f;
-    const float dist   = std::sqrt (dx * dx + dy * dy);          // 0 .. ~0.71 (corner)
-    const float radius = static_cast<float> (std::fmod (t, 1.0)) * 0.80f;  // covers the corners by beat end
+    // A clean circle expanding from the grid centre outward, measured in REAL
+    // cell units — so it's a true round front: the narrow sides (≈1.5 bars from
+    // centre) saturate well before the top/bottom (≈8.5 px away), then it resets
+    // and bursts again. Tight soft leading edge, solid fill behind.
+    const float cx = static_cast<float> (nBars - 1) * 0.5f;     // centre bar  (1.5)
+    const float cy = static_cast<float> (nPix  + 1) * 0.5f;     // centre pixel (9.5)
+    const float dx = static_cast<float> (barIdx) - cx;
+    const float dy = static_cast<float> (pixel)  - cy;
+    const float dist   = std::sqrt (dx * dx + dy * dy);
+    const float maxR   = std::sqrt (cx * cx + cy * cy);                       // centre → corner
+    const float radius = static_cast<float> (std::fmod (t, 1.0)) * maxR * 1.05f;
     const float front  = radius - dist;
-    return std::clamp (front / 0.05f, 0.0f, 1.0f);              // tiny smooth leading edge, solid behind
+    return std::clamp (front / 0.6f, 0.0f, 1.0f);              // ~0.6-px soft edge, solid behind
 }
 
 float stutter (double t, int /*barIdx*/, int /*pixel*/, int /*nPix*/, int /*nBars*/, float /*tail*/) noexcept
@@ -190,6 +238,19 @@ float stutter (double t, int /*barIdx*/, int /*pixel*/, int /*nPix*/, int /*nBar
     if (hash01 (static_cast<std::uint32_t> (step) * 2654435761u) >= 0.55f)
         return 0.0f;                              // this step is a rest
     return std::exp (-frac * 3.0f);               // punch on the step, quick decay
+}
+
+float waterfalls (double t, int barIdx, int pixel, int nPix, int /*nBars*/, float /*tail*/) noexcept
+{
+    // A continuous downward cascade: thin bright streaks stream DOWN each bar
+    // with dark gaps between them, like sheets of water. Each bar gets its own
+    // hashed phase so the four fall out of sync. Velocity (Wild beat-speed)
+    // sets the fall rate. Squared crests keep the falls thin and the gaps dark.
+    const float ph = hash01 (static_cast<std::uint32_t> (barIdx) * 2654435761u);
+    const float yy = static_cast<float> (pixel) / static_cast<float> (nPix);          // 0 bottom .. 1 top
+    const float s  = std::sin (kTwoPi * (3.0f * yy + 1.2f * static_cast<float> (t) + ph));
+    const float w  = std::max (0.0f, s);
+    return w * w;
 }
 
 
@@ -219,6 +280,26 @@ float diag_down (double t, int barIdx, int pixel, int nPix, int nBars, float tai
     const float head   = static_cast<float> (std::fmod (t, static_cast<double> (track)));
     const float behind = std::fmod (head - d + track, track);
     return cometBrightnessF (behind, track, tail);
+}
+
+float radar (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept
+{
+    // A radar sweep: a THIN (~1-px) spoke from the grid centre, rotating around,
+    // with a velocity-driven fading trail behind it — so with some tail it reads
+    // like a radar screen. Coords are normalised to a square for the angle (the
+    // tall-narrow 4×18 footprint still stretches the rotation — experimental).
+    // One turn per two beats.
+    const float cx = static_cast<float> (nBars - 1) * 0.5f;
+    const float cy = static_cast<float> (nPix  - 1) * 0.5f;
+    const float x  = (nBars > 1) ? (static_cast<float> (barIdx)    - cx) / cx : 0.0f;
+    const float y  = (nPix  > 1) ? (static_cast<float> (pixel - 1) - cy) / cy : 0.0f;
+    const float ang    = std::atan2 (y, x) + kTwoPi * 0.5f;                  // 0..2π
+    const float sweep  = static_cast<float> (std::fmod (t * 0.5, 1.0)) * kTwoPi;
+    const float behind = std::fmod (sweep - ang + kTwoPi, kTwoPi);          // angle behind the spoke
+    // ~0.10 rad head ≈ one pixel at the vertical rim; tail extends the trail.
+    const float tailLen = 0.10f + tail * kTwoPi * 0.9f;
+    const float b = 1.0f - behind / tailLen;
+    return b > 0.0f ? b : 0.0f;
 }
 
 float wave_train (double t, int /*barIdx*/, int pixel, int nPix, int /*nBars*/, float /*tail*/) noexcept
@@ -314,16 +395,18 @@ float halo (double t, int /*barIdx*/, int pixel, int nPix, int /*nBars*/, float 
 // Gentle, sub-bar-rate motion with smooth ramps for quiet sections. exp()
 // per pixel is fine here: 72 cells × once per audio block.
 
-float moon_rise (double t, int /*barIdx*/, int pixel, int nPix, int /*nBars*/, float /*tail*/) noexcept
+float moon_rise (double t, int barIdx, int pixel, int nPix, int nBars, float /*tail*/) noexcept
 {
     // A soft gaussian glow climbing the bars over 16 beats, starting below the
-    // bottom and drifting off the top. TWO moons run half a period apart, so as
-    // one sets off the top the next is already at the horizon — no dark gap /
-    // hiccup at the loop point.
-    const float sigma = static_cast<float> (nPix) * 0.18f;
-    auto moon = [pixel, nPix, sigma] (float phase)
+    // bottom and drifting off the top. TWO moons run half a period apart so the
+    // loop never goes fully dark. Narrower than before (more black around each
+    // moon), and the centre drifts sideways per bar so each moon tracks a
+    // diagonal as it climbs rather than a flat horizontal band.
+    const float sigma = static_cast<float> (nPix) * 0.13f;   // narrower → more black between moons
+    const float lean  = (static_cast<float> (barIdx) - static_cast<float> (nBars - 1) * 0.5f) * 1.6f;
+    auto moon = [pixel, nPix, sigma, lean] (float phase)
     {
-        const float centre = phase * (static_cast<float> (nPix) + 6.0f) - 3.0f;
+        const float centre = phase * (static_cast<float> (nPix) + 6.0f) - 3.0f + lean;
         const float d = (static_cast<float> (pixel) - centre) / sigma;
         return std::exp (-d * d);
     };
@@ -419,17 +502,20 @@ float shimmer (double t, int barIdx, int pixel, int /*nPix*/, int /*nBars*/, flo
     return std::clamp (v, 0.0f, 1.0f);
 }
 
-float smooth_shimmer (double t, int barIdx, int pixel, int /*nPix*/, int /*nBars*/, float /*tail*/) noexcept
+float glow (double t, int barIdx, int pixel, int nPix, int /*nBars*/, float /*tail*/) noexcept
 {
     // The calmest twinkle in the bank: two VERY slow incommensurate sines per
-    // pixel (lower frequencies than `shimmer`) with a hashed phase, floored well
-    // above black — so it glows and drifts with super-soft transients, never
-    // popping or going dark.
-    const float ph = hash01 (static_cast<std::uint32_t> (barIdx * 64 + pixel));
-    const float v  = 0.55f
-                   + 0.22f * std::sin (kTwoPi * (0.12f * static_cast<float> (t) + ph))
-                   + 0.13f * std::sin (kTwoPi * (0.07f * static_cast<float> (t) + ph * 1.7f));
-    return std::clamp (v, 0.25f, 1.0f);   // never fully dark
+    // pixel (lower frequencies than `shimmer`) with a hashed phase, so it drifts
+    // with super-soft transients and never pops. A touch more shimmer than
+    // before, plus a slow spatial gradient drifting up the bars so it reads as a
+    // breathing wash with gentle banding rather than a flat field.
+    const float ph   = hash01 (static_cast<std::uint32_t> (barIdx * 64 + pixel));
+    const float y    = (static_cast<float> (pixel) - 0.5f) / static_cast<float> (nPix);
+    const float tw   = 0.26f * std::sin (kTwoPi * (0.12f * static_cast<float> (t) + ph))
+                     + 0.15f * std::sin (kTwoPi * (0.07f * static_cast<float> (t) + ph * 1.7f));
+    const float grad = 0.13f * std::sin (kTwoPi * (0.05f * static_cast<float> (t) - y * 0.8f
+                                                  + static_cast<float> (barIdx) * 0.2f));
+    return std::clamp (0.55f + tw + grad, 0.22f, 1.0f);   // never fully dark
 }
 
 float drift (double t, int barIdx, int pixel, int nPix, int nBars, float /*tail*/) noexcept
@@ -608,7 +694,7 @@ RecipeRGB vu_meter (double t, int /*barIdx*/, int pixel, int nPix, int /*nBars*/
     // overshoots well past the top and stays PINNED in the red for ~1/3 of the
     // beat — reliably visible — while mid velocities still read as a partial
     // meter (vel ~100 ≈ 16/18 pixels).
-    const float floorLvl = 2.0f / static_cast<float> (nPix);
+    const float floorLvl = 1.0f / static_cast<float> (nPix);   // rest = the single lowest LED
     const float g        = std::clamp (gain, 0.0f, 1.0f);
     const float peak     = std::sqrt (g) * (1.0f + 2.2f * std::pow (g, 22.0f));
     const float ph       = static_cast<float> (std::fmod (t, 1.0));
@@ -616,8 +702,11 @@ RecipeRGB vu_meter (double t, int /*barIdx*/, int pixel, int nPix, int /*nBars*/
     const float y        = static_cast<float> (pixel) / static_cast<float> (nPix);
     if (y > level)
         return { 0.0f, 0.0f, 0.0f };
-    if (y < 0.5f) { const float u = y / 0.5f;          return { u, 0.4f + 0.5f * u, 0.0f }; }
-    const float u = (y - 0.5f) / 0.5f;                 return { 1.0f, 0.9f * (1.0f - u), 0.0f };
+    // At very low signal the lone floor LED DIMS instead of holding full green;
+    // brightness rises to full within ~2 pixels of the floor.
+    const float bri = std::clamp (0.30f + (level - floorLvl) * 6.0f, 0.30f, 1.0f);
+    if (y < 0.5f) { const float u = y / 0.5f;          return { u * bri, (0.4f + 0.5f * u) * bri, 0.0f }; }
+    const float u = (y - 0.5f) / 0.5f;                 return { bri, 0.9f * (1.0f - u) * bri, 0.0f };
 }
 
 RecipeRGB fire (double t, int barIdx, int pixel, int nPix, int /*nBars*/, float /*param*/) noexcept
@@ -1008,17 +1097,17 @@ namespace
 // radial → game). MUST match the menu label lists in TriggerMenu.cpp.
 constexpr std::array<DynamicFn, kNumChases> kChasesTable {{
     &chase_up,    // 24  (Chase — default up; Reverse note flips it)
-    nullptr,      // 25  — empty (old Chase dn; reverse via the Reverse note now)
+    &comets,      // 25  (Comets — three heads up the bar)
     &ping_pong,   // 26
     &diag_up,     // 27  (Diag — default up; Reverse note flips it)
-    nullptr,      // 28  — empty (old Diag dn; reverse via the Reverse note now)
+    &radar,       // 28  (Radar — thin spoke sweeping around the centre)
     &snake,       // 29
     &theater,     // 30
     &spiral,      // 31
     &wave_train,  // 32
     &expand,      // 33
     &contract,    // 34
-    &pong,        // 35
+    &fountain,    // 35  (Fountain — jets rising from the bottom, fading at the top)
 }};
 
 constexpr std::array<DynamicFn, kNumBreathes> kBreathesTable {{
@@ -1033,7 +1122,7 @@ constexpr std::array<DynamicFn, kNumBreathes> kBreathesTable {{
     &drift,          // 44
     &aurora,         // 45
     &shimmer,        // 46
-    &smooth_shimmer, // 47
+    &glow,           // 47  (was Smooth shimmer)
 }};
 
 constexpr std::array<DynamicFn, kNumWild> kWildTable {{
@@ -1044,11 +1133,11 @@ constexpr std::array<DynamicFn, kNumWild> kWildTable {{
     &glitch,        // 52
     &static_noise,  // 53
     &rain,          // 54
-    &stutter,       // 55
+    &waterfalls,    // 55  (was Stutter)
     &bounce,        // 56
     &fast_ball,     // 57
-    &zigzag,        // 58
-    &converge,      // 59
+    &pong,          // 58  (moved in from Chases; beat-synced here, was Zigzag)
+    &burst,         // 59  (was Converge)
 }};
 
 constexpr std::array<DynamicColorFn, kNumColorDyn> kColorTable {{

@@ -638,6 +638,8 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
                 return;
             if (pitch == kVuMeterPitch)        // beat-locked timing, velocity → gain
                 colorRecipes[nColorRecipes++] = { fn, 1.0f, vel / 127.0f };
+            else if (pitch == kDiscoPitch)     // beat-locked so it pulses on the song beat
+                colorRecipes[nColorRecipes++] = { fn, 1.0f, 0.0f };
             else                               // velocity → speed (~0.2×..2.5×)
                 colorRecipes[nColorRecipes++] = { fn, std::clamp (vel / 64.0f, 0.2f, 2.5f), 0.0f };
         }

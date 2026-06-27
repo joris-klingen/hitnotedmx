@@ -6,45 +6,17 @@ entries (and code comments) cross-reference them.
 
 ## Show prep — recipe tuning
 
-1. **Recipe-bank refinement (tuning pass)** — the recipes are tuned on hardware
-   and read well. Single-constant tweaks (speeds, band widths, gaussian radii,
-   hue ramps) live in `Recipes.cpp`; see #2 for the automated quality net
-   (`recipe-range`).
-
-   **Per-recipe tuning** (no note / name change):
-   - **Disco — time it to the beat.** Today it free-runs; lock its colour
-     switches / motion to the beat grid so it pulses in time with the song.
-   - **VU-meter low-level feel:** only the *lowest* LED should dim at very low
-     signal (today a fixed 2-pixel floor with a fast per-beat release).
-   - **Moon rise** — the moons sit too close; widen the gaps so there's more
-     black between them, and add a bit of diagonal drift to the motion.
-   - **Tide** — add a diagonal wave component so it isn't purely horizontal
-     (a bit like VU smooth).
-   - **Glow** (the renamed Smooth shimmer — see reshuffle) — a touch more
-     shimmer and stronger gradients.
-   - **Burst** (the renamed Converge — see reshuffle) — tune to a clean,
-     perfectly centred circle expanding from the middle.
-
-   **Vocabulary reshuffle — renames + note moves + 2 new recipes.** These change
-   what notes *mean*, so they ship together behind ONE mapping freeze (bump
-   `vocab::kMappingVersion`, re-dump `mappings/v<N>.tsv`; see
-   `mappings/README.md`). Update `Source/TriggerVocabulary.cpp` labels +
-   `Source/Recipes.cpp` dispatch tables in step. *(Revised after the master
-   remap: the old Spiral up/dn pairing is dropped — the global **Reverse** note
-   handles direction now, and Chase/Diag are already single recipes with notes
-   25/28 freed.)*
-   - **Renames:** Converge → **Burst** (tune to the clean expanding circle),
-     Smooth shimmer → **Glow**.
-   - **Wild:** **Pong** moves in at note 58, replacing **Zigzag** (dropped) — it
-     then takes Wild's beat-synced velocity, not the chase tail; new
-     **Waterfalls** recipe at note 55, replacing **Stutter**.
-   - **Chases:** **Pong** leaving frees note 35 (joins the freed 25/28); Theater
-     stays at 30, Spiral stays single at 31 (reverse via the Reverse note). Open:
-     what to put in the freed Chase slots (25/28/35) — "new ones later".
-   - Resulting columns — **Chases:** Chase, –, Ping-pong, Diag, –, Snake,
-     Theater, Spiral, Waves, Expand, Contract, – . **Wild:** Strobe, Sparkle,
-     Sparkle few, Lightning, Glitch, Static, Rain, Waterfalls, Bounce, Fast ball,
-     Pong, Burst.
+1. **Recipe-bank refinement** — the **v9 pass shipped** (see the Changelog in
+   STATUS.md): new **Comets** + **Rotor** chases, **Waterfalls** (was Stutter),
+   **Pong** moved into Wild, **Burst**/**Glow** renames + tuning, **Disco**
+   beat-lock, and the **VU-meter / Moon rise / Tide** tuning — all behind the one
+   v9 freeze. Single-constant tweaks (speeds, band widths, gaussian radii, hue
+   ramps) live in `Recipes.cpp`; see #2 for the automated quality net
+   (`recipe-range`). **Remaining:**
+   - **Eyeball the v9 pass on the bars** and fine-tune the single constants —
+     especially Radar (now a thin rotating spoke — confirm it reads as a radar
+     sweep on the bars vs the stretched grid) and Waterfalls (reads a touch
+     sparkly — smooth toward a continuous sheet if wanted).
 
 ## Tooling & tests
 
