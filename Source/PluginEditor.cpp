@@ -227,6 +227,7 @@ HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioP
             else
             {
                 t.setClickingTogglesState (true);
+                t.setTriggeredOnMouseDown (true);   // engage on press, not on release
                 t.onClick = [this, pitch, btn = &t] { setMasterNote (pitch, btn->getToggleState()); };
             }
         }
