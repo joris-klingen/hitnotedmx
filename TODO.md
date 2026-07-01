@@ -2,124 +2,94 @@
 
 Open backlog, grouped by kind. Shipped work, architecture and the full
 changelog live in [STATUS.md](STATUS.md). Item numbers are stable — other
-entries (and code comments) cross-reference them.
-
-## Show prep — recipe tuning
-
-1. **Recipe-bank refinement** — the **v9 pass shipped** (see the Changelog in
-   STATUS.md): new **Comets** + **Rotor** chases, **Waterfalls** (was Stutter),
-   **Pong** moved into Wild, **Burst**/**Glow** renames + tuning, **Disco**
-   beat-lock, and the **VU-meter / Moon rise / Tide** tuning — all behind the one
-   v9 freeze. Single-constant tweaks (speeds, band widths, gaussian radii, hue
-   ramps) live in `Recipes.cpp`; see #2 for the automated quality net
-   (`recipe-range`). **Remaining:**
-   - **Eyeball the v9 pass on the bars** and fine-tune the single constants —
-     especially Radar (now a thin rotating spoke — confirm it reads as a radar
-     sweep on the bars vs the stretched grid) and Waterfalls (reads a touch
-     sparkly — smooth toward a continuous sheet if wanted).
+entries (and code comments) cross-reference them, so removed items leave a
+gap rather than renumbering.
 
 ## Tooling & tests
 
-2. **Render tool — recipe quality net, clip preview, hitdesigndmx integration**
-   — an offline render tool (sibling to `mapping-tool`) reusing the real
-   `computeDmx` engine so it can never drift, with a **headless rig rasteriser
-   factored out of `DmxVisualizer`** (one drawing path → preview, golden images
-   and clip renders all match). *(The cheap half — a finite/in-range guard over
-   recipes + `computeDmx` — already shipped as the `recipe-range` CTest
-   (`tools/RecipeCheck.cpp`); the static film-strip / contact-sheet previews +
-   `.mid` clip render shipped as `recipe-render` (`tools/RecipeRender.cpp`,
-   modes `strip`/`sheet`/`stats`/`clip`/`contact`). What remains below is the
-   **look** net: golden images + animated GIFs.)* Three uses:
-   - **Vocabulary filmstrips (golden + preview)** — sample each recipe/trigger in
-     isolation → **contact-sheet PNGs** + a manifest (note → image + metadata),
-     emitted as a *versioned artifact* tied to `vocab::kMappingVersion` (same
-     dump-and-consume contract as `mappings/v<N>.tsv`). Doubles as a CTest
-     **golden-image regression guard** (a recipe's output changing trips a diff;
-     optional motion / colour metrics: frame-to-frame delta, coverage, hue
-     spread; optional **LLM-as-judge** for fuzzy triage) and as the hitdesigndmx
-     trigger-preview source. (Render rig-pixels-only / no text labels so font &
-     anti-aliasing differences can't cause false diffs.)
-   - **Clip render → animated GIF** — `recipe-render clip` already renders a
-     `.mid` as a static film strip; add a true **animated GIF** (full motion —
-     best for a temporal clip) so hitdesigndmx can preview *designed clips* and
-     converted legacy sets as they actually move, without Live or hardware.
-     Deterministic (recipes are beat-time + hash driven), so renders reproduce.
-     GIF via a small vendored public-domain encoder, or emit a PNG frame-sequence
-     and let the Python side assemble the GIF with Pillow.
-   - **Why a file/CLI contract, not shared code** — repos differ in language
-     (C++ vs Python) and hitdesigndmx already hand-mirrors the mapping
-     (`vocab/hitnote_v1.py`) for conversion but can't reproduce the recipe
-     visuals; the authoritative C++ engine renders once, the Python tool consumes
-     the result. **Pin before either side depends on it:** the CLI signature, the
-     manifest schema, and the image/GIF layout.
+2. **Render tool — golden-image regression net + hitdesigndmx preview** — the
+   render tool itself is **done**: `recipe-render` ships `strip` / `sheet` /
+   `stats` (per-recipe previews) plus `clip` / `contact`, which **parse a `.mid`
+   through the real `computeDmx`** — so MIDI clip input already works, and
+   `recipe-range` (`tools/RecipeCheck.cpp`) guards finite / in-range output.
+   Animated-GIF output was considered and **dropped** on purpose — a film strip
+   shows every frame at once, which is what you want when judging a recipe.
+   **Remaining (optional):** a **golden-image regression guard** — sample each
+   recipe / trigger in isolation into **contact-sheet PNGs** + a manifest (note →
+   image + metadata), emitted as a *versioned artifact* tied to
+   `vocab::kMappingVersion` (same dump-and-consume contract as
+   `mappings/v<N>.tsv`). It doubles as a CTest **diff guard** (a recipe's output
+   changing trips a diff; optional motion / colour metrics) and as the
+   hitdesigndmx trigger-preview source. Render rig-pixels-only / no text so font &
+   anti-aliasing differences can't cause false diffs. Needs a **headless rig
+   rasteriser factored out of `DmxVisualizer`** so preview, golden images and clip
+   renders share one drawing path.
 
 8. **Clip remigrator (`mapping-tool` subcommand)** — convert MIDI clips authored
    against an old mapping version to a newer one. **MIDI-note based, not
    chainName based:** carry an explicit per-transition note → note remap table
-   (drop / keep / move), authored at each freeze. Name-based matching is too
-   fragile here — versions routinely rename and *repurpose notes in place*, so a
-   chainName diff silently loses them. The v7 → v8 remap is the case in point:
-   122 (To black) → 10, 123 (From black) → 9, while 122/123/125 were *reused* for
-   Crossfade / free / Reverse and 120/121/24/27 were renamed in place
-   (Bump white→Bump, Bump color→Release, Chase up→Chase, Diag up→Diag) — none of
-   which a name match could follow. Lands as the `convert --from v<N>` subcommand
-   in `mappings/README.md` (whose current text still describes the *name*-based
-   plan — supersede it), reusing the frozen `mappings/v<N>.tsv` snapshots. Open:
-   compose multi-step hops (v6→v8) vs one table per adjacent pair; what to do
-   with dropped notes (warn / strip / leave); whether a dropped directional note
-   (e.g. old Chase dn) auto-rewrites to its base + a Reverse note.
+   (drop / keep / move), authored at each freeze. Name matching is too fragile
+   here — versions routinely rename and *repurpose notes in place*, so a chainName
+   diff silently loses them (the v7 → v8 remap is the case in point; see the v8
+   changelog in STATUS.md). Lands as `convert --from v<N>`, reusing the frozen
+   `mappings/v<N>.tsv` snapshots, and supersedes the *name*-based plan still
+   described in `mappings/README.md`. Open: compose multi-step hops (v6→v8) vs one
+   table per adjacent pair; dropped-note policy (warn / strip / leave); whether a
+   dropped directional note auto-rewrites to its base + a Reverse / Flip note.
 
 ## Feature backlog — playable notes / behaviours
 
-3. **Pixel-density: re-roll + soft-edges note** *(later)* — the density gate
-   drops pixels in a per-bar-even random order (avalanche hash, rank-normalised
-   per bar; the old diagonal banding is fixed). Open work:
-   - **Re-roll the thinned subset on each colour-note trigger** so the dropped
-     pixels change with the colour instead of staying fixed all show (more
-     life); reseed the per-bar rank from the winning colour note.
-   - **Expose density + a new "soft edges (2D)" feather as playable notes**
-     (velocity = intensity), alongside the existing automatable density knob.
-     Placement note: octave 8 is now full of master controls (120–125 + 127
-     Speed); only F#8 (126) is free there, so these need a home — 126, or
-     another octave.
-
-4. **Chase blend mode — "on top" vs mask (toggle note, top octave)** *(later)* —
-   today a held brightness dynamic (chase/breathe/wild) acts as a **mask**: lit
-   pixels are the *intersection* of the bar/zone/dynamic layers, so a chase
-   carves its moving shape OUT of the colour wash (the dynamic value multiplies
-   the per-pixel brightness in `computeDmx`'s bar compose). Add a **playable
-   toggle note** (a free note — see #3 on placement; octave 8 is now master
-   controls) that switches the dynamic layer to **additive / on-top**: the
-   base wash stays full and the chase *adds* its lit pixels over it instead of
-   gating them (a `max`/add at the dynamic-mask step instead of the multiply).
-   Default stays mask — the current behaviour. Useful with the layering workflow
-   (multicolor wash + a chase riding on top without darkening the rest).
-
-5. **Crossfade control note** *(discuss implementation first)* — a note that
-   crossfades (primary↔secondary, or wash↔dynamic — semantics TBD) and how it
-   composes with the existing layers. Decide note placement (octave 8 is nearly
-   full — see #3), velocity meaning, and compositing before building. (The
-   speed half of this idea shipped as the G8 global-speed note.)
+3. **Pixel density → dynamic soft shimmer (knob only)** — today density is a
+   static hard gate: below 100% it blanks a fixed per-bar subset of pixels
+   (avalanche-hash rank order) and the survivors keep full brightness — it gates
+   on/off, never dims, and the thinned set never moves. **Rework it into a
+   dynamic, slowly-drifting soft mask:** a smooth, slowly-moving raster/shimmer
+   that gently *reduces* brightness (soft dimming, not a hard on/off gate) so
+   density reads as a living texture instead of a fixed thinning. **Knob-only** —
+   no playable note version; the automatable Pixel Density param stays the sole
+   control, it just drives depth/coverage of the moving soft mask. Keep it
+   flicker-free and cheap (still inside `computeDmx`, no allocations).
 
 6. **Auto-program / hands-free mode** *(discuss first)* — for nights when there's
    no time to play the rig live. A **semi-active generative sequence** that cycles
    chase / block / breathe on its own — enough motion to feel alive, not a busy
    show. Plus a minimal fallback for the most rushed case: **solid single-colour
-   mode** where the note **velocity picks the colour**. Open: what arms it (a
-   master note / a button), how busy "semi-active" should be, whether it follows
-   the beat clock, and how it yields the moment live triggers come in.
+   mode** where the note **velocity picks the colour**. **Arm it on B-2 (pitch 11)**
+   — the one free note in the Spots & bars octave. Open: how busy "semi-active"
+   should be, whether it follows the beat clock, and how it yields the moment live
+   triggers come in.
 
-## Bigger / longer-term
+9. **MIDI panic / stuck-note recovery** — `processBlock` only handles note-on /
+   note-off, so a dropped note-off (a MIDI hiccup, a clip edit mid-hold, a track
+   disarmed while a note sounds) leaves that light **stuck on** with no automatic
+   recovery — the only escape is the manual Blackout button. Handle the standard
+   MIDI panic messages — **All Notes Off (CC 123)** and **All Sound Off (CC 120)**
+   — by clearing `liveMidi` (leave the click-preview state alone), so a host/pedal
+   panic clears stuck lights without killing the rig. Small and self-contained
+   (`PluginProcessor.cpp` block loop). Optional extra: treat a long transport gap
+   as a re-sync.
 
-7. **Abstract the rig so it can change (add fixtures)** — today the rig is
-   hardcoded everywhere: `Rig.h` fixes 4 bars × 18 pixels + 2 spots and the
-   228-channel patch, the note vocabulary and recipes assume exactly that
-   geometry (bar/zone masks are 18-bit, spots are a fixed pair), and the
-   visualiser draws that exact layout. Adding or changing fixtures means edits
-   in many places. At some point elevate to a **data-driven rig model** — a rig
-   description (fixture types, counts, DMX start addresses, per-fixture
-   pixel/channel layout) that `computeDmx`, the recipes, the vocabulary and the
-   visualiser all read from, so a new rig is a config change, not a code change.
-   Big, cross-cutting refactor with real show-compat implications (the mapping
-   would likely need to become rig-aware / re-versioned), so it's not show-prep
-   — scope it deliberately when the rig actually needs to grow.
+## Bigger / longer-term — rig flexibility
+
+7a. **Parametric grid shape (bar count / pixels)** — today the geometry is fixed
+    at 4 bars × 18 pixels: `Rig.h` hardcodes it, the bar/zone masks are 18-bit,
+    and the visualiser draws exactly that. First step toward a flexible rig is to
+    let the **grid shape vary** — e.g. 6 bars, or 4 bars at a different pixel
+    count — driven from a small set of rig constants that `computeDmx`, the
+    recipes, the masks and the visualiser all read, so a different bar/pixel count
+    is a config change rather than edits in many files. (The mapping likely has to
+    become grid-aware / re-versioned once the mask widths change.)
+
+7b. **Full data-driven rig model** — the general case of 7a: a rig description
+    (fixture types, counts, DMX start addresses, per-fixture pixel/channel layout,
+    spot pairs) that every layer reads, so an arbitrary new rig — not just a
+    different grid — is a config change, not a code change. Big, cross-cutting
+    refactor with real show-compat implications (rig-aware mapping / re-versioning),
+    so scope it deliberately when the rig actually needs to grow.
+
+10. **Resizable / pop-out visualiser** — the editor is a fixed 1168×338 and the
+    rig preview is sized to fit alongside the controls. Make the window resizable
+    (or give the visualiser a detachable / full-window view) so it can scale up
+    for front-of-house "is the rig doing what I think" glances. **Most valuable
+    once the rig grows** (see 7a/7b) — a bigger grid needs more pixels on screen
+    than the current fixed layout affords, so pair it with the rig-shape work.
