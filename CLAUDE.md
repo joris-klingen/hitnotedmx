@@ -16,7 +16,7 @@ rather than reconstructing the answer from constants spread across files:
 
 - **Concern → file** — the per-layer table in [STATUS.md](STATUS.md) maps every
   layer (rig, palette, recipes, driver, editor …) to its file(s). Start there.
-- **What a note does / which notes are free** — [`mappings/v9.tsv`](mappings/v9.tsv),
+- **What a note does / which notes are free** — [`mappings/v12.tsv`](mappings/v12.tsv),
   the current frozen 128-row `note → meaning` snapshot (highest `v<N>`; `-` = unused).
   Read it instead of tracing the `kXxxStart` note-range constants by hand.
 - **Note → label / menu / rack-name logic** — `Source/TriggerVocabulary.{h,cpp}`,
@@ -41,3 +41,15 @@ cmake -S . -B build
 cmake --build build -j8
 ctest --test-dir build
 ```
+
+## Releasing to the show machine
+
+The show machine installs from the Dropbox folder
+`~/Library/CloudStorage/Dropbox/Music/Hitmix/9_tech/hitnotedmx_installer`
+(payload: `HitNoteDmx.vst3` + `HitNoteDmx.app` + `install.command`; script
+source lives in [installer/install.command](installer/install.command)).
+**Refresh that folder only on request** — "release to the show machine" =
+build + `ctest`, then copy the two artefacts and the script into it. On the
+target machine, double-clicking `install.command` copies the plugin to
+`~/Library/Audio/Plug-Ins/VST3` and the standalone to `/Applications`, and
+strips the quarantine flag (the binaries are ad-hoc signed).
