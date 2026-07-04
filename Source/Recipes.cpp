@@ -1054,23 +1054,21 @@ RecipeRGB disco (double t, int barIdx, int pixel, int nPix, int nBars, float /*p
     // This cell's block in the 4×4 block grid.
     const int bx = (barIdx * 4) / nBars;
     const int by = ((pixel - 1) * 4) / nPix;
-    const int id = bx * 4 + by;
 
-    // Four flashes this step, each its own block + palette colour. Blocks are
-    // spread with an odd stride (3/5/7, coprime with 16) so the four never
-    // collide within a step and the layout varies step to step.
-    const auto s      = static_cast<std::uint32_t> (step);
-    const int  base   = static_cast<int> (hash01 (s * 2654435761u) * 16.0f);
-    const int  stride = 3 + 2 * static_cast<int> (hash01 (s * 40503u) * 3.0f);
-    for (int k = 0; k < 4; ++k)
-    {
-        if (id != (base + k * stride) % 16)
-            continue;
-        const int col = static_cast<int> (
-            hash01 (s * 22695477u + static_cast<std::uint32_t> (k) * 97u) * 6.0f);
-        return hueToRgb (kPalette[col], glow);
-    }
-    return { 0.0f, 0.0f, 0.0f };
+    // Four lamps, one per width-quarter (a fixed little club rig — and the
+    // blocks can never stack). For CONSISTENCY they don't all jump at once:
+    // each lamp re-aims (new height + colour) only every OTHER step — lamps
+    // 0/2 on even steps, 1/3 on odd — so ~50% of the lights persist across
+    // any step while the rest swap. All four still re-flash (the `glow`
+    // pulse) every step.
+    const int  lamp  = bx;
+    const auto epoch = static_cast<std::uint32_t> ((step + (lamp & 1)) / 2);
+    const auto salt  = static_cast<std::uint32_t> (lamp) * 40503u;
+    const int  aimBy = static_cast<int> (hash01 (epoch * 2654435761u + salt) * 4.0f);
+    if (by != aimBy)
+        return { 0.0f, 0.0f, 0.0f };
+    const int col = static_cast<int> (hash01 (epoch * 22695477u + salt) * 6.0f);
+    return hueToRgb (kPalette[col], glow);
 }
 
 RecipeRGB twilight (double t, int /*barIdx*/, int pixel, int nPix, int /*nBars*/, float /*param*/) noexcept
