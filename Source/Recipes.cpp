@@ -1044,6 +1044,13 @@ RecipeRGB disco (double t, int barIdx, int pixel, int nPix, int nBars, float /*p
                                     0.85f }; // magenta
     const int step = static_cast<int> (t * 2.0);   // ~twice per beat
 
+    // Incandescent fade: each block pops on at full and decays over its step
+    // like a filament lamp losing heat (fast attack, exponential release,
+    // still ~10% warm when the next flashes fire) — the old-school club-light
+    // feel, rather than LED-crisp on/off.
+    const float frac = static_cast<float> (t * 2.0) - static_cast<float> (step);
+    const float glow = std::exp (-2.2f * frac);
+
     // This cell's block in the 4×4 block grid.
     const int bx = (barIdx * 4) / nBars;
     const int by = ((pixel - 1) * 4) / nPix;
@@ -1061,7 +1068,7 @@ RecipeRGB disco (double t, int barIdx, int pixel, int nPix, int nBars, float /*p
             continue;
         const int col = static_cast<int> (
             hash01 (s * 22695477u + static_cast<std::uint32_t> (k) * 97u) * 6.0f);
-        return hueToRgb (kPalette[col], 1.0f);
+        return hueToRgb (kPalette[col], glow);
     }
     return { 0.0f, 0.0f, 0.0f };
 }
