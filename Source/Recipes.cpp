@@ -726,17 +726,23 @@ RecipeRGB fire (double t, int barIdx, int pixel, int nPix, int /*nBars*/, float 
 
 RecipeRGB desert_breathe (double t, int barIdx, int pixel, int nPix, int /*nBars*/, float /*param*/) noexcept
 {
-    // A slow drift across warm sand/dusk hues (16-beat hue cycle) with a
-    // gentle 8-beat brightness swell, phase-offset per bar.
-    const float h = 0.04f
-                  + 0.06f * std::sin (kTwoPi * static_cast<float> (t) / 16.0f)
-                  + 0.03f * static_cast<float> (pixel) / static_cast<float> (nPix);
-    float v = 0.45f + 0.35f * std::sin (kTwoPi * static_cast<float> (t) / 8.0f
+    // A slow drift across warm sand hues, leaning YELLOW (16-beat hue cycle)
+    // with a gentle 8-beat brightness swell phase-offset per bar, plus a slow
+    // dune wave rolling up the bars so the sand visibly moves vertically
+    // instead of only pulsing in place.
+    const float y = (static_cast<float> (pixel) - 1.0f) / static_cast<float> (nPix);
+    const float h = 0.09f
+                  + 0.05f * std::sin (kTwoPi * static_cast<float> (t) / 16.0f)
+                  + 0.03f * y;
+    float v = 0.45f + 0.25f * std::sin (kTwoPi * static_cast<float> (t) / 8.0f
                                        + static_cast<float> (barIdx) * 0.6f);
-    // A tiny per-pixel shimmer (±8%) so the sand glitters faintly rather than
-    // reading as a flat wash.
+    // Dune wave: a soft brightness band drifting up the bar.
+    v += 0.18f * std::sin (kTwoPi * (y * 1.4f - 0.25f * static_cast<float> (t))
+                           + static_cast<float> (barIdx) * 0.8f);
+    // Per-pixel shimmer (±12%) so the sand glitters.
     const float ph = hash01 (static_cast<std::uint32_t> (barIdx * 64 + pixel));
-    v *= 0.92f + 0.08f * std::sin (kTwoPi * (0.6f * static_cast<float> (t) + ph * 5.0f));
+    v *= 0.88f + 0.12f * std::sin (kTwoPi * (0.8f * static_cast<float> (t) + ph * 5.0f));
+    v = std::clamp (v, 0.0f, 1.0f);
     const auto c = hueToRgb (h, v);
     // Knock the saturation back a touch so it reads sandy, not neon.
     return { c.r * 0.95f + v * 0.05f, c.g * 0.85f + v * 0.15f, c.b * 0.85f + v * 0.15f };
@@ -1024,43 +1030,40 @@ RecipeRGB velvet (double t, int barIdx, int pixel, int nPix, int /*nBars*/, floa
 
 RecipeRGB disco (double t, int barIdx, int pixel, int nPix, int nBars, float /*param*/) noexcept
 {
-    // A dancefloor, not a rainbow. Two things keep it disco rather than confetti:
-    //   1. colours come from a SMALL bold palette (red/amber/green/cyan/blue/
-    //      magenta), never a continuous random hue — so no muddy in-betweens;
-    //   2. each beat-step uses just TWO of them (rotating through the palette),
-    //      laid out as a block checker, so the floor reads as a coherent
-    //      two-colour flash that changes on the beat.
-    // The region mask is unchanged: each step lights one big area (a half, or a
-    // diagonal quadrant pair) so at least half the grid stays dark.
+    // A dancefloor, not a rainbow. Colours come from a SMALL bold palette
+    // (red/amber/green/cyan/blue/magenta), never a continuous random hue — so
+    // no muddy in-betweens. The grid is a 4×4 checker of SMALL blocks (each
+    // 1/16 of the rig); every beat-step lights FOUR of them, each in its own
+    // single colour — so ~1/4 of the grid flashes at a time and it reads like
+    // separate club lights firing around the room rather than one big wash.
     constexpr float kPalette[6] = { 0.00f,   // red
                                     0.07f,   // amber
                                     0.33f,   // green
                                     0.50f,   // cyan
                                     0.66f,   // blue
                                     0.85f }; // magenta
-    const int  step    = static_cast<int> (t * 2.0);   // ~twice per beat
-    const int  pattern = static_cast<int> (hash01 (static_cast<std::uint32_t> (step) * 2654435761u) * 6.0f);
-    const bool leftHalf = barIdx < nBars / 2;
-    const bool lowHalf  = pixel <= nPix / 2;
-    bool lit;
-    switch (pattern)
+    const int step = static_cast<int> (t * 2.0);   // ~twice per beat
+
+    // This cell's block in the 4×4 block grid.
+    const int bx = (barIdx * 4) / nBars;
+    const int by = ((pixel - 1) * 4) / nPix;
+    const int id = bx * 4 + by;
+
+    // Four flashes this step, each its own block + palette colour. Blocks are
+    // spread with an odd stride (3/5/7, coprime with 16) so the four never
+    // collide within a step and the layout varies step to step.
+    const auto s      = static_cast<std::uint32_t> (step);
+    const int  base   = static_cast<int> (hash01 (s * 2654435761u) * 16.0f);
+    const int  stride = 3 + 2 * static_cast<int> (hash01 (s * 40503u) * 3.0f);
+    for (int k = 0; k < 4; ++k)
     {
-        case 0:  lit = lowHalf;               break;   // bottom half
-        case 1:  lit = ! lowHalf;             break;   // top half
-        case 2:  lit = leftHalf;              break;   // left half
-        case 3:  lit = ! leftHalf;            break;   // right half
-        case 4:  lit = (leftHalf == lowHalf); break;   // diagonal quadrants
-        default: lit = (leftHalf != lowHalf); break;   // anti-diagonal quadrants
+        if (id != (base + k * stride) % 16)
+            continue;
+        const int col = static_cast<int> (
+            hash01 (s * 22695477u + static_cast<std::uint32_t> (k) * 97u) * 6.0f);
+        return hueToRgb (kPalette[col], 1.0f);
     }
-    if (! lit)
-        return { 0.0f, 0.0f, 0.0f };
-    // Two palette colours this step (a != b), assigned per block as a checker.
-    const int a = static_cast<int> (hash01 (static_cast<std::uint32_t> (step) * 40503u) * 6.0f);
-    int       b = static_cast<int> (hash01 (static_cast<std::uint32_t> (step) * 22695477u + 1u) * 6.0f);
-    if (b == a) b = (b + 1) % 6;
-    const int  seg  = (pixel - 1) / 3;
-    const bool useA = ((barIdx + seg) & 1) == 0;
-    return hueToRgb (kPalette[useA ? a : b], 1.0f);
+    return { 0.0f, 0.0f, 0.0f };
 }
 
 RecipeRGB twilight (double t, int /*barIdx*/, int pixel, int nPix, int /*nBars*/, float /*param*/) noexcept
