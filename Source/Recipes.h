@@ -58,12 +58,12 @@ inline constexpr double kStrobeMaxHz  = 20.0;            // velocity 127 (hw max
 // Per-recipe velocity exceptions handled in computeDmx:
 //   • Wild is beat-synced (velocity → 1/16..1/1 division) EXCEPT sparkle /
 //     sparkle_few, which stay free-running (continuous velocity → speed).
-//   • Breathes run at half speed EXCEPT ripple.
+//   • Breathes run at half the chase rate (periodic ones cycle once per bar);
+//     their velocity blends in a glow-style intensity mask (127 = untouched).
 //   • VU meter is beat-LOCKED (timing always on the beat) and velocity sets
 //     its range/gain instead of speed.
 inline constexpr int kSparklePitch    = kWildStart + 1;      // 49
 inline constexpr int kSparkleFewPitch = kWildStart + 2;      // 50
-inline constexpr int kRipplePitch     = kBreathesStart + 2;  // 38
 inline constexpr int kVuMeterPitch    = kColorDynStart + 2;  // 62
 inline constexpr int kDiscoPitch      = kColorDynStart + 21; // 81 (beat-locked like VU meter)
 
@@ -127,7 +127,6 @@ float aurora     (double t, int barIdx, int pixel, int nPix, int nBars, float ta
 
 // Chases (fill).
 float theater    (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
-float comets     (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float radar      (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float fountain   (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 

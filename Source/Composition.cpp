@@ -31,14 +31,16 @@ namespace hitnotedmx
 //   Wild (brightness)        Beat-synced SPEED division (127 = 1/16 … 0 = 1/1);
 //                            sparkle / sparkle_few stay free-running. UNDER G8:
 //                            picks the palette ROUTE instead.
-//   Breathes (brightness)    DENSITY — soft carves the shape into smooth
-//                            patchy islands (breatheDensityMask); half speed
+//   Breathes (brightness)    GLOW-MASK depth — 127 = the breathe untouched,
+//                            softer notes dim it into a drifting patchy wash
+//                            (breatheGlowMask); half the chase rate, so the
+//                            periodic breathes cycle once per bar
 //   Colour dynamics          SPEED of the recipe's animation — hard = faster;
 //                            EXCEPT VU meter: beat-locked, velocity → gain
 //   Speed (G8)               GLOBAL recipe-speed multiplier for all four banks
 //                            — a DISCRETE power-of-two ladder, doubling every
-//                            14 velocity, capped at 8x (vel 1 = 1x .. 43+ =
-//                            8x, i.e. a 2-bar breathe down to 1 beat); see
+//                            14 velocity: vel 1 = 0.5x (a 2-bar breathe),
+//                            15 = 1x, then 2x / 4x / 8x cap at 57+; see
 //                            section 5
 //   Palette colour notes     Colour-FADE duration only — hard = instant snap,
 //                            soft = slow rise to FULL colour (advanceFade).
@@ -302,12 +304,6 @@ void advanceFade (ColorFadeState::Channel& c,
 
 constexpr float kTwoPi = 6.28318530717958647692f;
 
-inline float smoothstep01 (float a, float b, float x) noexcept
-{
-    const float t = std::clamp ((x - a) / (b - a), 0.0f, 1.0f);
-    return t * t * (3.0f - 2.0f * t);
-}
-
 inline float hashf (std::uint32_t h) noexcept   // avalanche → [0,1)
 {
     h ^= h >> 16;  h *= 0x7FEB352Du;
@@ -327,39 +323,26 @@ inline float wildBeatSpeed (std::uint8_t vel) noexcept
     return 4.0f;                   // 1/16
 }
 
-// Patchy density mask for the Breathes bank (driven by the note's velocity).
-// The field is a few smooth Gaussian humps — one dominant — and `density`
-// sets a soft threshold below which cells go dark. Sweeping velocity 127 → 0
-// therefore morphs: full grid → soft holes in the valleys → a connected
-// "lake" around half-way → a few islands → one bigger / two smaller islands
-// that never fully vanish (the threshold is capped). Smooth in BOTH axes
-// (Gaussian + smoothstep). `seed` (per note-on) relocates the humps, so each
-// retrigger lands the islands somewhere new.
-inline float breatheDensityMask (int barIdx, int pixel, int nPix, int nBars,
-                                 float density, float seed) noexcept
+// Smooth intensity mask for the Breathes bank (driven by the note's
+// velocity). Velocity 127 leaves the breathe untouched; lower velocities
+// blend in a glow-style field — two very slow incommensurate per-pixel sines
+// plus a drifting spatial gradient, the same recipe as `glow` (pitch 47) —
+// as a MULTIPLIER on top of the breathe. So a soft note dims the shape into
+// a gently drifting patchy wash: a smooth intensity reduction, never an
+// on/off gate, and never fully dark (the field bottoms out at ~0.22).
+inline float breatheGlowMask (int barIdx, int pixel, int nPix, double t,
+                              float depth) noexcept
 {
-    if (density >= 0.999f)
-        return 1.0f;
-    const float x = nBars > 1 ? static_cast<float> (barIdx) / static_cast<float> (nBars - 1) : 0.5f;
-    const float y = (static_cast<float> (pixel) - 0.5f) / static_cast<float> (nPix);
-    const std::uint32_t base = static_cast<std::uint32_t> (seed * 4294967040.0f) + 1u;
-    const float p = seed * kTwoPi;
-
-    // Smooth noise gives the holes / lake texture; one dominant broad bump
-    // biases a region so the last survivor at density 0 is a single island.
-    // Low HORIZONTAL frequencies + a horizontally-broad bump keep the lateral
-    // edges soft (the grid is only 4 bars wide); a wide smoothstep band adds
-    // intermediate brightness on the boundaries so transitions ramp instead of
-    // snapping.
-    const float noise = 0.5f + 0.5f * (0.55f * std::sin (kTwoPi * (x * 0.30f + y * 1.2f) + p)
-                                     + 0.45f * std::sin (kTwoPi * (x * 0.50f - y * 0.7f) + p * 1.7f + 2.0f));
-    const float bx = 0.2f + 0.6f * hashf (base + 11u);
-    const float by = 0.2f + 0.6f * hashf (base + 23u);
-    const float bump = std::exp (-((x - bx) * (x - bx) * 0.55f + (y - by) * (y - by) * 0.45f) / (0.40f * 0.40f));
-    const float f = std::min (1.0f, 0.66f * noise + 0.52f * bump);
-
-    const float threshold = (1.0f - density) * 0.80f;   // cap: density 0 still leaves the dominant island
-    return smoothstep01 (threshold - 0.22f, threshold + 0.22f, f);
+    if (depth <= 0.001f)
+        return 1.0f;   // velocity 127 → the breathe passes through untouched
+    const float ph   = hashf (static_cast<std::uint32_t> (barIdx * 64 + pixel));
+    const float y    = (static_cast<float> (pixel) - 0.5f) / static_cast<float> (nPix);
+    const float tw   = 0.26f * std::sin (kTwoPi * (0.12f * static_cast<float> (t) + ph))
+                     + 0.15f * std::sin (kTwoPi * (0.07f * static_cast<float> (t) + ph * 1.7f));
+    const float grad = 0.13f * std::sin (kTwoPi * (0.05f * static_cast<float> (t) - y * 0.8f
+                                                   + static_cast<float> (barIdx) * 0.2f));
+    const float field = std::clamp (0.55f + tw + grad, 0.22f, 1.0f);
+    return 1.0f + depth * (field - 1.0f);   // lerp: 1 (vel 127) → the glow field (vel 1)
 }
 
 }  // namespace
@@ -538,16 +521,18 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
     //   • Chases   → trail length (tail; hard = long comet)
     //   • Wild     → beat-synced speed (127 = 1/16 … 0 = 1/1) — except sparkle /
     //                sparkle_few, which stay free (continuous velocity speed)
-    //   • Breathes → island density (+ half speed, except ripple)
+    //   • Breathes → glow-mask depth (127 = untouched; softer notes dim the
+    //                shape into a drifting wash); half the chase rate, so the
+    //                periodic breathes cycle once per bar
     // `tScale` multiplies tBeats before the call; `arg` is the recipe's tail
-    // (chases) or the breathe density; `seed` positions the breathe islands.
+    // (chases) or the breathe glow-mask depth.
     //
     // Colour dynamics (Multicolor) emit RGB directly and replace the palette
     // route for the lit pixels (brightness dynamics still multiply on top).
     // Velocity → SPEED, except VU meter, which is beat-LOCKED with velocity →
     // gain. Small fixed-size buffers; the audio thread never allocates.
-    enum DynMode { kTail = 0, kSpeed = 1, kDensity = 2 };
-    struct ActiveRecipe      { DynamicFn      fn; int mode; float tScale; float arg; float seed; };
+    enum DynMode { kTail = 0, kSpeed = 1, kGlow = 2 };
+    struct ActiveRecipe      { DynamicFn      fn; int mode; float tScale; float arg; };
     struct ActiveColorRecipe { DynamicColorFn fn; float tScale; float param; };
     constexpr int kMaxRecipes = 16;
     std::array<ActiveRecipe,      kMaxRecipes> recipes {};
@@ -559,25 +544,26 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
 
     // Global speed (G8 / kSpeedNote): its velocity scales EVERY recipe's rate
     // as a DISCRETE power-of-two ladder — each 14-velocity step doubles the
-    // rate, capped at 8x: vel 1-14 = 1x, 15-28 = 2x, 29-42 = 4x, 43+ = 8x.
-    // Absent = 1x (default speeds). Anchored on the breathes' natural 2-bar
-    // cycle (e.g. halo: up one bar, down the next): vel 1 keeps 2 bars, 15 =
-    // 1 bar, 29 = 2 beats, 43 = 1 beat. Powers of two keep every bank's
-    // cycles on the bar grid (the phase clocks re-lock to the song position
-    // at transport start — see BumpState::resyncClocks); the 8x cap is where
-    // the natively-faster chases (1 cycle/beat) stop reading as motion and
-    // start aliasing. While it's held, chase/wild velocity is freed from
-    // tail/beat-speed duty and instead picks the palette ROUTE (>=64 primary,
-    // <64 secondary); the strongest (highest-velocity) chase/wild wins.
-    // dynRoute feeds the colour resolution in the bar compose below.
+    // rate, from a half-speed bottom step to an 8x cap: vel 1-14 = 0.5x,
+    // 15-28 = 1x, 29-42 = 2x, 43-56 = 4x, 57+ = 8x. Absent = 1x (default
+    // speeds). Anchored on the breathes' natural 1-bar cycle: vel 1 = 2 bars
+    // (halo up one bar, down the next), 15 = the default 1 bar, 29 = 2 beats,
+    // 43 = 1 beat. Powers of two keep every bank's cycles on the bar grid
+    // (the phase clocks re-lock to the song position at transport start —
+    // see BumpState::resyncClocks); the 8x cap is where the natively-faster
+    // chases (1 cycle/beat) stop reading as motion and start aliasing. While
+    // it's held, chase/wild velocity is freed from tail/beat-speed duty and
+    // instead picks the palette ROUTE (>=64 primary, <64 secondary); the
+    // strongest (highest-velocity) chase/wild wins. dynRoute feeds the colour
+    // resolution in the bar compose below.
     const bool  speedHeld = state.isActive (static_cast<std::uint8_t> (kSpeedNote));
     const float gMult = [&]() -> float
     {
         if (! speedHeld)
             return 1.0f;
         const int vel   = state.get (static_cast<std::uint8_t> (kSpeedNote)).velocity;
-        const int level = std::clamp ((vel - 1) / 14, 0, 3);
-        return static_cast<float> (1 << level);   // 1x / 2x / 4x / 8x
+        const int level = std::clamp ((vel - 1) / 14, 0, 4);
+        return 0.5f * static_cast<float> (1 << level);   // 0.5x / 1x / 2x / 4x / 8x
     }();
 
     // Flip (F8): flip recipe DIRECTION by sampling each recipe at mirrored grid
@@ -661,16 +647,16 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
                     tScale = freeRunning ? std::clamp (vel / 64.0f, 0.2f, 2.5f)
                                          : wildBeatSpeed (n.velocity);
                 }
-                recipes[nRecipes++] = { fn, kSpeed, tScale, 0.0f, 0.0f };
+                recipes[nRecipes++] = { fn, kSpeed, tScale, 0.0f };
             }
             else if (isBreathesPitch (pitch))
             {
-                const float tScale = (pitch == kRipplePitch) ? 1.0f : 0.5f;   // half speed (not ripple)
-                const float seed = static_cast<float> (std::fmod (n.startBeat * 0.61803398875 + 0.5, 1.0));
-                recipes[nRecipes++] = { fn, kDensity, tScale, vel / 127.0f, seed };
+                // Half the chase rate — the periodic breathes cycle once per
+                // bar. Velocity = the glow-mask blend depth (127 untouched).
+                recipes[nRecipes++] = { fn, kGlow, 0.5f, 1.0f - vel / 127.0f };
             }
             else   // chases — velocity is tail length, or (under global speed) the colour route
-                recipes[nRecipes++] = { fn, kTail, 1.0f, speedHeld ? 0.5f : vel / 127.0f, 0.0f };
+                recipes[nRecipes++] = { fn, kTail, 1.0f, speedHeld ? 0.5f : vel / 127.0f };
         }
         else if (isColorDynPitch (pitch))
         {
@@ -780,9 +766,9 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
                     const double base = (r.mode == kSpeed) ? recipeBeatsBar : recipePhaseBar;
                     const double rt = base * static_cast<double> (r.tScale);
                     float v;
-                    if (r.mode == kDensity)      // Breathes: carve into smooth islands
+                    if (r.mode == kGlow)         // Breathes: soft velocity dimming
                         v = r.fn (rt, rBar, rPix, nPix, nBars, 0.0f)
-                          * breatheDensityMask (barIdx, pixel, nPix, nBars, r.arg, r.seed);
+                          * breatheGlowMask (barIdx, pixel, nPix, rt, r.arg);
                     else                          // Chases (tail=arg) / Wild (arg unused)
                         v = r.fn (rt, rBar, rPix, nPix, nBars, r.arg);
                     dyn = std::max (dyn, v);

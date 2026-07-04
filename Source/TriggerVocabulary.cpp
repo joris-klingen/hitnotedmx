@@ -42,8 +42,10 @@ std::vector<Column> build()
         { "Zone 1", "Zone 2", "Zone 3", "Zone 4", "Zone 5", "Zone 6",
           "Zone 7", "Zone 8", "Zone 9", "Even", "Odd", "Thirds" }));
 
+    // Ripple appears twice on purpose: here at chase speed (a ring per beat)
+    // and in Breathes at the 1-bar breathe rate.
     c.push_back (trig ("Chases", kChasesStart,
-        { "Chase", "Comets", "Ping-pong", "Diag", "Radar", "Snake",
+        { "Chase", "Ripple", "Ping-pong", "Diag", "Radar", "Snake",
           "Theater", "Spiral", "Waves", "Expand", "Contract", "Fountain" }));
 
     c.push_back (trig ("Breathes", kBreathesStart,
