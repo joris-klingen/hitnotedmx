@@ -74,6 +74,7 @@ private:
     void attemptReconnect();       // timer-thread: throttled re-open of the port
     int  sendDmxFrame();           // 1 = sent, 0 = would-block (dropped), -1 = hard error
     int  sendPacket (int label, const unsigned char* data, int length);
+    int  flushTxBuffer();          // resume/finish writing txBuf; same returns as sendPacket
     int  receivePacket (int label, unsigned char* data, unsigned int expectedLength);
     bool readByte (unsigned char& out);
     void closePort();
@@ -90,6 +91,16 @@ private:
     static constexpr int kDataLen = 513;
     std::array<unsigned char, kDataLen> dmxData {};
     std::array<unsigned char, kDataLen> blackoutData {};
+
+    // Outgoing ENTTEC packet (header + payload + end byte), persisted across
+    // ticks so a partial non-blocking write can RESUME next tick instead of
+    // being abandoned mid-frame — a fresh packet spliced after a truncated one
+    // can be latched by the widget as a corrupt DMX frame (0x7E is a legal
+    // data byte, so its framing resync is not reliable). Send thread only.
+    static constexpr int kMaxPacketLen = 4 /*header*/ + kDataLen + 1 /*end*/;
+    std::array<unsigned char, kMaxPacketLen> txBuf {};
+    size_t txLen  { 0 };   // bytes in txBuf (0 = nothing pending)
+    size_t txSent { 0 };   // bytes already written
 
     int serialFd { -1 };
     std::string selectedDevicePath;        // /dev/cu.usbserial-EN...

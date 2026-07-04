@@ -303,6 +303,7 @@ void EnttecProDmx::closePort()
         ::close (serialFd);
         serialFd = -1;
     }
+    txLen = txSent = 0;   // never resume a partial packet onto a new connection
 }
 
 juce::String EnttecProDmx::getStatusText() const
@@ -419,38 +420,61 @@ int EnttecProDmx::sendPacket (int label, const unsigned char* data, int length)
     if (serialFd < 0)
         return -1;   // no port → hard error (caller arms a reconnect)
 
-    // Assemble the full ENTTEC frame: start, label, len LSB/MSB, data, end.
-    std::vector<unsigned char> packet;
-    packet.reserve ((size_t) (HEADER_LENGTH + length + 1));
-    packet.push_back (MSG_START_CODE);
-    packet.push_back ((unsigned char) label);
-    packet.push_back ((unsigned char) (length & 0xFF));
-    packet.push_back ((unsigned char) ((length >> 8) & 0xFF));
-    packet.insert (packet.end(), data, data + length);
-    packet.push_back (MSG_END_CODE);
+    if (length < 0 || (size_t) (HEADER_LENGTH + length + 1) > txBuf.size())
+        return -1;
 
-    size_t total = packet.size();
-    size_t sent  = 0;
-    while (sent < total)
+    // A previous packet was cut short by a would-block: finish it FIRST so the
+    // byte stream stays framed, and skip this tick's fresh packet (the fixtures
+    // hold their last values, so one stale frame is invisible).
+    if (txLen > 0)
     {
-        ssize_t n = ::write (serialFd, packet.data() + sent, total - sent);
+        const int flushed = flushTxBuffer();
+        if (flushed <= 0)
+            return flushed;   // still blocked (0) or device gone (-1)
+        return 0;             // old frame completed; this tick's data is dropped
+    }
+
+    // Assemble the full ENTTEC frame: start, label, len LSB/MSB, data, end.
+    txBuf[0] = MSG_START_CODE;
+    txBuf[1] = (unsigned char) label;
+    txBuf[2] = (unsigned char) (length & 0xFF);
+    txBuf[3] = (unsigned char) ((length >> 8) & 0xFF);
+    std::memcpy (txBuf.data() + HEADER_LENGTH, data, (size_t) length);
+    txBuf[(size_t) (HEADER_LENGTH + length)] = MSG_END_CODE;
+    txLen  = (size_t) (HEADER_LENGTH + length + 1);
+    txSent = 0;
+
+    return flushTxBuffer();
+}
+
+int EnttecProDmx::flushTxBuffer()
+{
+    while (txSent < txLen)
+    {
+        ssize_t n = ::write (serialFd, txBuf.data() + txSent, txLen - txSent);
         if (n < 0)
         {
             if (errno == EINTR)
                 continue;
             // EAGAIN/EWOULDBLOCK: the device's buffer is momentarily full (the
-            // fd is non-blocking during the send loop). Drop this frame and try
-            // again next tick rather than blocking the timer thread. Any other
-            // errno (EIO/ENXIO/EBADF — device unplugged) is a hard failure.
+            // fd is non-blocking during the send loop). Keep txSent/txLen so
+            // the NEXT tick resumes this packet where it stopped rather than
+            // splicing a fresh one after a truncated frame. Any other errno
+            // (EIO/ENXIO/EBADF — device unplugged) is a hard failure.
             if (errno == EAGAIN || errno == EWOULDBLOCK)
                 return 0;
+            txLen = txSent = 0;
             return -1;
         }
         if (n == 0)
+        {
+            txLen = txSent = 0;
             return -1;
-        sent += (size_t) n;
+        }
+        txSent += (size_t) n;
     }
 
+    txLen = txSent = 0;
     return 1;
 }
 
