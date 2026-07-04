@@ -151,12 +151,22 @@ void HitNoteDmxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         // continues smoothly from here when the transport stops.
         blockStartBeat = hostPpq;
         freeRunBeats   = hostPpq;
+
+        // Transport START (or a backwards jump — a loop wrap / relocate):
+        // re-lock the recipe phase clocks to the song position, so the
+        // chases/breathes restart in step with the song (a snake begins at
+        // the bottom at ppq 0) instead of continuing from wherever their
+        // accumulated clocks were. Forward-only playback keeps its clocks.
+        if (! wasPlaying || hostPpq < lastPlayPpq - 1.0e-6)
+            bumpState.resyncClocks();
+        lastPlayPpq = hostPpq;
     }
     else
     {
         blockStartBeat = freeRunBeats;
         freeRunBeats  += dtBeats;
     }
+    wasPlaying = playing && haveHostPpq;
 
     // 2. Update MidiState (and the GUI's MidiLog) from every event the
     //    host gave us this block.

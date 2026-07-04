@@ -170,6 +170,8 @@ private:
 
     double sampleRate_ { 48000.0 };
     double freeRunBeats { 0.0 };  // beat clock used when transport isn't playing
+    bool   wasPlaying  { false }; // transport-start edge → resync recipe clocks
+    double lastPlayPpq { 0.0 };   // last host ppq seen while playing (jump detect)
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (HitNoteDmxAudioProcessor)
 };

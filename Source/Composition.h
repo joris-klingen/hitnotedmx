@@ -133,6 +133,14 @@ struct BumpState
 
     // Clears the transient flash tail + crossfade; the to/from-black level persists.
     void reset() noexcept { flash = Env {}; haveLast = false; xfadeHave = false; }
+
+    // Re-lock the recipe clocks to the CURRENT playhead time: the next
+    // computeDmx re-seeds animBeats (= tBeats) and recipePhase (= tBeats ×
+    // speed) instead of integrating a delta. Called by the processor when the
+    // host transport starts or jumps backwards (a loop wrap), so the movers
+    // restart in step with the song — a snake begins at the bottom again —
+    // rather than continuing from wherever their accumulated clocks were.
+    void resyncClocks() noexcept { havePhase = false; haveRaw = false; }
 };
 
 // Compute per-channel DMX state at the given playhead time:

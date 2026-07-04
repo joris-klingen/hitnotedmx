@@ -36,7 +36,10 @@ namespace hitnotedmx
 //   Colour dynamics          SPEED of the recipe's animation — hard = faster;
 //                            EXCEPT VU meter: beat-locked, velocity → gain
 //   Speed (G8)               GLOBAL recipe-speed multiplier for all four banks
-//                            (vel 64 = 1x, exp ~0.25x..4x); see section 5
+//                            — a DISCRETE power-of-two ladder, doubling every
+//                            14 velocity, capped at 8x (vel 1 = 1x .. 43+ =
+//                            8x, i.e. a 2-bar breathe down to 1 beat); see
+//                            section 5
 //   Palette colour notes     Colour-FADE duration only — hard = instant snap,
 //                            soft = slow rise to FULL colour (advanceFade).
 //                            Brightness comes from the bar-selector layer.
@@ -554,24 +557,28 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
     bool dynamicLayerHeld = false;
     bool strobeHeld = false;   // drives the rig white so the driver shutter has something to chop
 
-    // Global speed (G8 / kSpeedNote): its velocity scales EVERY recipe's rate —
-    // exponential, vel 64 = 1x. Absent = 1x (default speeds). The slow and fast
-    // halves use different slopes (asymmetric): the slow end reaches 0.125x at
-    // vel 0 (so the 1-cycle/beat chases drop to a stately 1 cycle / 8 beats),
-    // while the fast end stays ~3.9x at vel 127 (steeper-than-that just aliases
-    // into strobing on the breathes/multicolor banks). While it's held,
-    // chase/wild velocity is freed from tail/beat-speed duty and instead picks
-    // the palette ROUTE (>=64 primary, <64 secondary); the strongest
-    // (highest-velocity) chase/wild wins. dynRoute feeds the colour resolution
-    // in the bar compose below.
+    // Global speed (G8 / kSpeedNote): its velocity scales EVERY recipe's rate
+    // as a DISCRETE power-of-two ladder — each 14-velocity step doubles the
+    // rate, capped at 8x: vel 1-14 = 1x, 15-28 = 2x, 29-42 = 4x, 43+ = 8x.
+    // Absent = 1x (default speeds). Anchored on the breathes' natural 2-bar
+    // cycle (e.g. halo: up one bar, down the next): vel 1 keeps 2 bars, 15 =
+    // 1 bar, 29 = 2 beats, 43 = 1 beat. Powers of two keep every bank's
+    // cycles on the bar grid (the phase clocks re-lock to the song position
+    // at transport start — see BumpState::resyncClocks); the 8x cap is where
+    // the natively-faster chases (1 cycle/beat) stop reading as motion and
+    // start aliasing. While it's held, chase/wild velocity is freed from
+    // tail/beat-speed duty and instead picks the palette ROUTE (>=64 primary,
+    // <64 secondary); the strongest (highest-velocity) chase/wild wins.
+    // dynRoute feeds the colour resolution in the bar compose below.
     const bool  speedHeld = state.isActive (static_cast<std::uint8_t> (kSpeedNote));
-    const float speedVel  = speedHeld
-        ? static_cast<float> (state.get (static_cast<std::uint8_t> (kSpeedNote)).velocity) - 64.0f
-        : 0.0f;
-    const float gMult = speedHeld
-        ? std::pow (2.0f, speedVel < 0.0f ? speedVel / 21.333f    // vel 0  → 0.125x (8-beat chases)
-                                          : speedVel / 32.0f)      // vel 127 → ~3.9x
-        : 1.0f;
+    const float gMult = [&]() -> float
+    {
+        if (! speedHeld)
+            return 1.0f;
+        const int vel   = state.get (static_cast<std::uint8_t> (kSpeedNote)).velocity;
+        const int level = std::clamp ((vel - 1) / 14, 0, 3);
+        return static_cast<float> (1 << level);   // 1x / 2x / 4x / 8x
+    }();
 
     // Flip (F8): flip recipe DIRECTION by sampling each recipe at mirrored grid
     // coords (bar → nBars-1-bar, pixel → nPix+1-pixel). An instant SPATIAL
