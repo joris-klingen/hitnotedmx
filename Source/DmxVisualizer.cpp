@@ -46,13 +46,18 @@ juce::Colour rgbwToScreen (float r, float g, float b, float w, float dim) noexce
 
 // Small "dNNN" start-address caption, centred under a fixture of width
 // `fixtureW` whose bottom edge sits at `topY`. Drawn on the dark panel
-// background, so a fixed dim grey reads cleanly.
-void drawAddress (juce::Graphics& g, int address, int x, int topY, int fixtureW) noexcept
+// background, so a fixed dim grey reads cleanly. `slackPerSide` lets the
+// caption overflow into the gutter beside a narrow fixture (half the bar
+// spacing keeps neighbours apart); fitted text shrinks rather than clips
+// when even that isn't enough.
+void drawAddress (juce::Graphics& g, int address, int x, int topY, int fixtureW,
+                  int slackPerSide) noexcept
 {
     g.setColour (juce::Colour (0xff808080));
     g.setFont (juce::FontOptions (10.5f));
-    g.drawText ("d" + juce::String (address).paddedLeft ('0', 3),
-                x, topY + 2, fixtureW, 12, juce::Justification::centred, false);
+    g.drawFittedText ("d" + juce::String (address).paddedLeft ('0', 3),
+                      x - slackPerSide, topY + 2, fixtureW + 2 * slackPerSide, 12,
+                      juce::Justification::centred, 1, 0.5f);
 }
 }
 
@@ -236,7 +241,7 @@ void DmxVisualizer::rebuildCache()
                  rgbwToScreen (r, gv, b, ww, dim), 1.0f);   // round halo for the spots (no stretch)
 
         // Start DMX address, small, under the fixture.
-        drawAddress (g, spot.dimmer(), x, spotY + spotSize, spotSize);
+        drawAddress (g, spot.dimmer(), x, spotY + spotSize, spotSize, 0);
     }
 
     // ---- Bars (unlabelled) ----------------------------------------------
@@ -269,7 +274,8 @@ void DmxVisualizer::rebuildCache()
         }
 
         // Start DMX address, small, under the bar (flush with the pane bottom).
-        drawAddress (g, rig.barStart (barIdx), x, rowY (rig.rows), barW);
+        drawAddress (g, rig.barStart (barIdx), x, rowY (rig.rows), barW,
+                     barSpacing / 2 - 1);
     }
 
     for (int barIdx = 0; barIdx < rig.cols; ++barIdx)
