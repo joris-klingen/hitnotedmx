@@ -1044,31 +1044,46 @@ RecipeRGB disco (double t, int barIdx, int pixel, int nPix, int nBars, float /*p
                                     0.85f }; // magenta
     const int step = static_cast<int> (t * 2.0);   // aim changes ~twice per beat
 
-    // This cell's block in the 4×4 block grid.
-    const int bx = (barIdx * 4) / nBars;
-    const int by = ((pixel - 1) * 4) / nPix;
-
-    // Four lamps, one per width-quarter — so exactly FOUR are lit at any
-    // moment and they can never stack. A lamp is ONE block (~1 bar × a
-    // quarter of its height ≈ 4 pixels at the default grid). Each lamp holds
-    // its aim (block height + one palette colour) for TWO steps (one beat),
-    // steadily FULL ON while aimed — no per-step pulsing. Lamps 0/2 re-aim on
-    // even steps, 1/3 on odd, so ~50% of the lights persist across any step.
-    // The incandescent feel lives in the TURN-OFF: the block a lamp just left
-    // cools off exponentially over the following beat.
-    const int  lamp  = bx;
+    // Four lamps, each a 2×2-PIXEL square (two adjacent bars × two adjacent
+    // pixels ≈ 4 LEDs, regardless of the grid shape) — one per grid QUADRANT,
+    // so four are always on and they can never stack. Each lamp holds its aim
+    // (square position + one palette colour) for TWO steps (one beat),
+    // steadily FULL ON while aimed — no per-step pulsing. Left-side lamps
+    // re-aim on even steps, right-side on odd, so ~50% of the lights persist
+    // across any step. The incandescent feel lives in the TURN-OFF: the
+    // square a lamp just left cools off exponentially over the following beat.
+    const int qx = (barIdx * 2) / nBars;        // this cell's quadrant: 0 = left,   1 = right
+    const int qy = ((pixel - 1) * 2) / nPix;    //                       0 = bottom, 1 = top
+    const int  lamp  = qy * 2 + qx;
     const int  phase = lamp & 1;
     const auto epoch = static_cast<std::uint32_t> ((step + phase) / 2);
     const auto salt  = static_cast<std::uint32_t> (lamp) * 40503u;
 
-    auto aimBy  = [salt] (std::uint32_t e) { return static_cast<int> (hash01 (e * 2654435761u + salt) * 4.0f); };
-    auto colFor = [salt] (std::uint32_t e) { return static_cast<int> (hash01 (e * 22695477u   + salt) * 6.0f); };
+    // Quadrant bounds: bars [bLo, bHi), rows [rLo, rHi] (1-based).
+    const int bLo = qx == 0 ? 0 : nBars / 2;
+    const int bHi = qx == 0 ? nBars / 2 : nBars;
+    const int rLo = qy == 0 ? 1 : nPix / 2 + 1;
+    const int rHi = qy == 0 ? nPix / 2 : nPix;
 
-    if (by == aimBy (epoch))
+    // Is this cell inside the lamp's 2×2 aim for epoch `e`? The square is
+    // placed fully inside the quadrant (clamped to 1-wide/-tall on degenerate
+    // grids).
+    auto lit = [&] (std::uint32_t e) -> bool
+    {
+        const int bar0 = bLo + static_cast<int> (hash01 (e * 2654435761u + salt)
+                             * static_cast<float> (std::max (1, bHi - 1 - bLo)));
+        const int pix0 = rLo + static_cast<int> (hash01 (e * 1013904223u + salt)
+                             * static_cast<float> (std::max (1, rHi - rLo)));
+        return barIdx >= bar0 && barIdx < std::min (bHi, bar0 + 2)
+            && pixel  >= pix0 && pixel  < std::min (rHi + 1, pix0 + 2);
+    };
+    auto colFor = [salt] (std::uint32_t e) { return static_cast<int> (hash01 (e * 22695477u + salt) * 6.0f); };
+
+    if (lit (epoch))
         return hueToRgb (kPalette[colFor (epoch)], 1.0f);   // steadily on while aimed
 
-    // Turn-off tail: the block this lamp aimed at LAST epoch cools off.
-    if (epoch > 0u && by == aimBy (epoch - 1u))
+    // Turn-off tail: the square this lamp aimed at LAST epoch cools off.
+    if (epoch > 0u && lit (epoch - 1u))
     {
         // Steps into the current epoch, 0..2 (the epoch began at 2e - phase).
         const float u = static_cast<float> (t * 2.0
