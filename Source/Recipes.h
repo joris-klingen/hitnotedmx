@@ -105,6 +105,7 @@ inline constexpr bool isWildPitch     (int p) noexcept { return p >= kWildStart 
 // through the dispatcher.
 float chase_up   (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float chase_down (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
+float chase_h    (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float ping_pong  (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float snake      (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float sine_wave  (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
@@ -139,7 +140,6 @@ float drift      (double t, int barIdx, int pixel, int nPix, int nBars, float ta
 
 // Wild (fill).
 float lightning    (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
-float static_noise (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float glitch       (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float bounce       (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float waterfalls   (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;

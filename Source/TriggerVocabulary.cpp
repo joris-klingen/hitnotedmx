@@ -46,14 +46,14 @@ std::vector<Column> build()
     // and in Breathes at the 1-bar breathe rate.
     c.push_back (trig ("Chases", kChasesStart,
         { "Chase", "Ripple", "Ping-pong", "Diag", "Radar", "Snake",
-          "Theater", "Spiral", "Waves", "Expand", "Contract", "Fountain" }));
+          "Theater", "Spiral", "Waves", "Expand", "Contract", "Chase H" }));
 
     c.push_back (trig ("Breathes", kBreathesStart,
         { "Tide", "Sine", "Ripple", "Ripple H", "Bloom", "Halo",
           "Moon rise", "Soft ball", "Drift", "Aurora", "Shimmer", "Glow" }));
 
     c.push_back (trig ("Wild", kWildStart,
-        { "Strobe", "Sparkle", "Sparkle few", "Lightning", "Glitch", "Static",
+        { "Strobe", "Sparkle", "Sparkle few", "Lightning", "Glitch", "Fountain",
           "Rain", "Waterfalls", "Bounce", "Fast ball", "Pong", "Burst" }));
 
     // Multicolor spans two octaves (two columns of self-coloured recipes).

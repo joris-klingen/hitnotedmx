@@ -304,6 +304,98 @@ void advanceFade (ColorFadeState::Channel& c,
 
 constexpr float kTwoPi = 6.28318530717958647692f;
 
+// Advance the zero-sustain bump flash one block. Fires on the note's ONSET
+// (keyed off the held note's start beat, so back-to-back clip notes still
+// re-trigger) and then ALWAYS decays — even while the note is held — at the
+// Release (C#8) note's rate: 1/16 note at vel 1 .. 1 bar at vel 127, default
+// 1/8 note when absent. `dBeats` is this block's beat delta — the ANIMATION
+// clock normally, but the RAW clock on frozen blocks, so a bump fired over a
+// frozen frame still decays (Bump deliberately ignores Freeze).
+void advanceBumpFlash (const MidiState& state, BumpState& bump, double dBeats) noexcept
+{
+    const bool  relHeld  = state.isActive (static_cast<std::uint8_t> (kBumpReleaseNote));
+    const float relBeats = relHeld
+        ? 0.25f * std::pow (16.0f,
+            (static_cast<float> (state.get (static_cast<std::uint8_t> (kBumpReleaseNote)).velocity) - 1.0f) / 126.0f)
+        : 0.5f;   // default 1/8 note
+    const float rate = (relBeats <= 0.0f) ? 1.0f : static_cast<float> (dBeats) / relBeats;
+
+    auto& e = bump.flash;
+    bool onset = false;
+    if (state.isActive (static_cast<std::uint8_t> (kBumpNote)))
+    {
+        const auto& n = state.get (static_cast<std::uint8_t> (kBumpNote));
+        if (n.startBeat != e.lastStart)   // new onset → instant flash
+        {
+            e.level     = 1.0f;           // instant attack
+            e.amount    = static_cast<float> (n.velocity) / 127.0f;
+            e.lastStart = n.startBeat;
+            onset = true;
+        }
+    }
+    else
+    {
+        e.lastStart = -1.0;   // released → next note-on is a fresh onset
+    }
+    // Decay from the onset regardless of hold; skip the onset block so the
+    // peak flash renders at full before it starts falling.
+    if (! onset && e.level > 0.0f)
+        e.level = std::max (0.0f, e.level - rate);
+}
+
+// Overlay the bump flash (toward white, or the primary hue when one is held)
+// plus the to/from-black dip onto the composed frame — bars take both, the
+// spots take only the flash (only blackout darkens spots). No-op when
+// neither is active; clears the selection outlines while it flashes. Shared
+// by section 9 and the frozen path (Bump deliberately ignores Freeze).
+void applyBumpOverlay (DmxValues& out, const GridState& grid, const BumpState& bump,
+                       const ColorPick& primaryC, float ledMasterDim,
+                       float spotMasterDim, SelectionMask* sel) noexcept
+{
+    const float cov  = bump.flash.level;   // flash coverage 0..1
+    const float bri  = bump.flash.amount;  // captured velocity (brightness)
+    const float kCut = bump.blackLevel;    // fade-to-black dim factor 0..1
+
+    if (cov <= 0.0f && kCut <= 0.0f)
+        return;
+
+    if (sel != nullptr)
+        sel->clear();
+
+    // Single bump: white when no primary colour is held, else the primary
+    // hue. (W channel on the spots flashes only on a white bump.)
+    const bool  colWhite = primaryC.pitch < 0;
+    const float colR = colWhite ? 1.0f : primaryC.r;
+    const float colG = colWhite ? 1.0f : primaryC.g;
+    const float colB = colWhite ? 1.0f : primaryC.b;
+    const float colW = colWhite ? 1.0f : 0.0f;
+
+    auto flash = [=] (float v, float tgt) -> float
+    {
+        return v * (1.0f - cov) + tgt * bri * cov;
+    };
+
+    for (int barIdx = 0; barIdx < grid.rig.cols; ++barIdx)
+    {
+        for (int pixel = 1; pixel <= grid.rig.rows; ++pixel)
+        {
+            const auto ch = grid.rig.channelsFor (barIdx, pixel);
+            out.set (ch[0], flash (out.get (ch[0]), colR * ledMasterDim) * (1.0f - kCut));
+            out.set (ch[1], flash (out.get (ch[1]), colG * ledMasterDim) * (1.0f - kCut));
+            out.set (ch[2], flash (out.get (ch[2]), colB * ledMasterDim) * (1.0f - kCut));
+        }
+    }
+    for (int s = 0; s < kNumSpots; ++s)
+    {
+        const auto& spot = kSpots[s];
+        out.set (spot.dimmer(), flash (out.get (spot.dimmer()), spotMasterDim));
+        out.set (spot.red(),    flash (out.get (spot.red()),    colR));
+        out.set (spot.green(),  flash (out.get (spot.green()),  colG));
+        out.set (spot.blue(),   flash (out.get (spot.blue()),   colB));
+        out.set (spot.white(),  flash (out.get (spot.white()),  colW));
+    }
+}
+
 inline float hashf (std::uint32_t h) noexcept   // avalanche → [0,1)
 {
     h ^= h >> 16;  h *= 0x7FEB352Du;
@@ -419,19 +511,38 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
 
     // Freeze (123) pauses the animation clock and holds the PREVIOUS frame: we
     // advance `animBeats` only on non-frozen blocks, rewrite `tBeats` to it, and
-    // return early while held — so the recipes (and bump tails, all beat-driven)
-    // continue from exactly where they froze rather than jumping ahead.
+    // return early while held — so the recipes continue from exactly where they
+    // froze rather than jumping ahead. The one exception is the BUMP flash,
+    // which deliberately ignores freeze (see the frozen branch below).
     const bool frozen = state.isActive (static_cast<std::uint8_t> (kFreezeNote));
+    double rawDelta = 0.0;   // this block's raw (unpaused) beat delta
     if (bump != nullptr)
     {
+        rawDelta = bump->haveRaw ? std::max (0.0, tBeats - bump->lastRaw) : 0.0;
         if (! bump->haveRaw)   bump->animBeats = tBeats;
-        else if (! frozen)     bump->animBeats += std::max (0.0, tBeats - bump->lastRaw);
+        else if (! frozen)     bump->animBeats += rawDelta;
         bump->lastRaw = tBeats;
         bump->haveRaw = true;
         tBeats = bump->animBeats;   // everything downstream runs on the paused clock
     }
     if (frozen)
-        return;   // hold the last composed frame (and selection) untouched
+    {
+        // Hold the composed frame — except Bump, which punches THROUGH freeze
+        // so accents can fire over a frozen look. Rebuild the display from the
+        // pre-overlay snapshot (saved each unfrozen block in section 9) and
+        // apply a fresh flash overlay, advancing the envelope on the RAW beat
+        // delta (the paused animation clock would hold a flash at its peak
+        // forever). The to/from-black level stays frozen where it is; the
+        // selection and everything else hold untouched.
+        if (bump != nullptr && bump->haveSnapshot)
+        {
+            advanceBumpFlash (state, *bump, rawDelta);
+            out = bump->sceneSnapshot;
+            const auto primaryC = pickColor (state, kPrimaryPaletteStart, kSecondaryPaletteStart);
+            applyBumpOverlay (out, grid, *bump, primaryC, ledMasterDim, spotMasterDim, sel);
+        }
+        return;
+    }
 
     out.clear();
     if (sel != nullptr)
@@ -924,45 +1035,10 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
             return (beats <= 0.0f) ? 1.0f : static_cast<float> (dBeats) / beats;
         };
 
-        // Bump release length: the Release note (C#8) scales it from 1/16 note
-        // (vel 1) to 1 bar (vel 127), exponential; absent → a default 1/8 note.
-        // The per-block decay rate is this block's beat delta over that length.
-        const bool  bumpRelHeld = state.isActive (static_cast<std::uint8_t> (kBumpReleaseNote));
-        const float bumpRelBeats = bumpRelHeld
-            ? 0.25f * std::pow (16.0f,
-                (static_cast<float> (state.get (static_cast<std::uint8_t> (kBumpReleaseNote)).velocity) - 1.0f) / 126.0f)
-            : 0.5f;   // default 1/8 note
-        const float bumpRate = (bumpRelBeats <= 0.0f) ? 1.0f : static_cast<float> (dBeats) / bumpRelBeats;
-
-        // Zero-sustain flash: the bump fires on the note's ONSET (keyed off the
-        // held note's start beat, so back-to-back clip notes still re-trigger)
-        // and then ALWAYS decays — even while the note is still held — so the
-        // hold length is irrelevant and you only program the note start. The
-        // decay rate is the Release length (bumpRate).
-        auto advance = [&] (BumpState::Env& e, int note)
-        {
-            bool onset = false;
-            if (state.isActive (static_cast<std::uint8_t> (note)))
-            {
-                const auto& n = state.get (static_cast<std::uint8_t> (note));
-                if (n.startBeat != e.lastStart)   // new onset → instant flash
-                {
-                    e.level     = 1.0f;           // instant attack
-                    e.amount    = static_cast<float> (n.velocity) / 127.0f;
-                    e.lastStart = n.startBeat;
-                    onset = true;
-                }
-            }
-            else
-            {
-                e.lastStart = -1.0;   // released → next note-on is a fresh onset
-            }
-            // Decay from the onset regardless of hold; skip the onset block so
-            // the peak flash renders at full before it starts falling.
-            if (! onset && e.level > 0.0f)
-                e.level = std::max (0.0f, e.level - bumpRate);
-        };
-        advance (bump->flash, kBumpNote);
+        // Zero-sustain flash: fires on the note's ONSET, always decays at the
+        // Release note's rate (see advanceBumpFlash — shared with the frozen
+        // path, where it runs on the raw clock instead).
+        advanceBumpFlash (state, *bump, dBeats);
 
         // To/from-black master fader (output scaled by 1 - blackLevel below).
         // These glide at the rate set by THEIR OWN note's velocity (the bumps'
@@ -1032,53 +1108,18 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
             bump->blackLevel = 0.0f;   // note ended → reset to scene
         }
 
-        const float cov  = bump->flash.level;   // flash coverage 0..1
-        const float bri  = bump->flash.amount;  // captured velocity (brightness)
-        const float kCut = bump->blackLevel;    // fade-to-black dim factor 0..1
+        // Snapshot the pre-overlay scene so the frozen path can rebuild the
+        // display and punch fresh bump flashes over it (Bump ignores Freeze).
+        bump->sceneSnapshot = out;
+        bump->haveSnapshot  = true;
 
-        if (cov > 0.0f || kCut > 0.0f)
-        {
-            if (sel != nullptr)
-                sel->clear();
-
-            // Single bump: white when no primary colour is held, else the primary
-            // hue. (W channel on the spots flashes only on a white bump.)
-            const bool  colWhite = primaryC.pitch < 0;
-            const float colR = colWhite ? 1.0f : primaryC.r;
-            const float colG = colWhite ? 1.0f : primaryC.g;
-            const float colB = colWhite ? 1.0f : primaryC.b;
-            const float colW = colWhite ? 1.0f : 0.0f;
-
-            // Bump flash overlay: scene → flash toward the target. The
-            // to/from-black dip (× (1 - kCut)) is applied to the BARS on top; the
-            // SPOTS ignore it on purpose — only the blackout note (C-2) takes the
-            // spots dark, so a fade-to-black can drop the rig while the singer
-            // spots stay lit. Spots still take the bump flash.
-            auto flash = [=] (float v, float tgt) -> float
-            {
-                return v * (1.0f - cov) + tgt * bri * cov;
-            };
-
-            for (int barIdx = 0; barIdx < grid.rig.cols; ++barIdx)
-            {
-                for (int pixel = 1; pixel <= grid.rig.rows; ++pixel)
-                {
-                    const auto ch = grid.rig.channelsFor (barIdx, pixel);
-                    out.set (ch[0], flash (out.get (ch[0]), colR * ledMasterDim) * (1.0f - kCut));
-                    out.set (ch[1], flash (out.get (ch[1]), colG * ledMasterDim) * (1.0f - kCut));
-                    out.set (ch[2], flash (out.get (ch[2]), colB * ledMasterDim) * (1.0f - kCut));
-                }
-            }
-            for (int s = 0; s < kNumSpots; ++s)
-            {
-                const auto& spot = kSpots[s];
-                out.set (spot.dimmer(), flash (out.get (spot.dimmer()), spotMasterDim));
-                out.set (spot.red(),    flash (out.get (spot.red()),    colR));
-                out.set (spot.green(),  flash (out.get (spot.green()),  colG));
-                out.set (spot.blue(),   flash (out.get (spot.blue()),   colB));
-                out.set (spot.white(),  flash (out.get (spot.white()),  colW));
-            }
-        }
+        // Bump flash overlay: scene → flash toward the target (white, or the
+        // primary hue if one is held). The to/from-black dip (× (1 - kCut)) is
+        // applied to the BARS on top; the SPOTS ignore it on purpose — only
+        // the blackout note (C-2) takes the spots dark, so a fade-to-black can
+        // drop the rig while the singer spots stay lit. Spots still take the
+        // bump flash.
+        applyBumpOverlay (out, grid, *bump, primaryC, ledMasterDim, spotMasterDim, sel);
     }
 }
 

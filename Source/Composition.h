@@ -112,6 +112,15 @@ struct BumpState
     std::array<float, kMaxBars * kMaxRows * 3> xfade {};
     bool   xfadeHave = false;       // false = (re)initialise to the scene next block
 
+    // Pre-overlay scene snapshot (the whole frame just before the flash /
+    // to-black overlay), saved every unfrozen block. Bump deliberately
+    // IGNORES Freeze: the frozen path rebuilds the display from this
+    // snapshot and applies a fresh overlay each block, so a flash can punch
+    // over a frozen look and decay cleanly instead of compounding into the
+    // held buffer.
+    DmxValues sceneSnapshot;
+    bool      haveSnapshot = false;
+
     // Real reverse: the phase clock for the reversible movers (chases/breathes).
     // Integrates the beat delta forward, or backward while the Reverse note is
     // held, so they retrace from the current state; kept >= 0 (recipes wrap on
@@ -167,7 +176,10 @@ struct BumpState
 //
 // Master / global hits are the exceptions to "fully written each block":
 //   • Freeze (123) returns BEFORE the clear, so `out` holds the previous
-//     frame untouched while held (blackout still dominates freeze).
+//     frame while held (blackout still dominates freeze) — EXCEPT the Bump
+//     flash, which punches through freeze: the display is rebuilt from a
+//     pre-overlay snapshot with the flash applied on the raw (unpaused)
+//     clock, so accents fire and decay over a frozen look.
 //   • Flip (125) mirrors recipe direction (mirrored sampling coords — instant
 //     spatial flip); Reverse (124) runs the chases/breathes phase clock backward
 //     so they retrace from the current state (Wild/Multicolor keep absolute

@@ -97,6 +97,16 @@ float chase_down (double t, int /*barIdx*/, int pixel, int nPix, int /*nBars*/, 
     return cometBrightness (behindWrapped (pos, pixel, nPix, -1), nPix, tail);
 }
 
+float chase_h (double t, int barIdx, int /*pixel*/, int /*nPix*/, int nBars, float tail) noexcept
+{
+    // Horizontal Chase: whole COLUMNS sweep across the grid (left→right, one
+    // full pass per beat) with the comet trail measured in bars — the lateral
+    // counterpart of chase_up's one-pixel-at-a-time climb. Flip/Reverse turn
+    // it around like the other chases.
+    const int pos = static_cast<int> (t * nBars) % nBars;   // head column, 0-based
+    return cometBrightness (behindWrapped (pos, barIdx, nBars, +1), nBars, tail);
+}
+
 float ping_pong (double t, int /*barIdx*/, int pixel, int nPix, int /*nBars*/, float tail) noexcept
 {
     const double phase = std::fmod (t, 2.0);
@@ -113,11 +123,14 @@ float ping_pong (double t, int /*barIdx*/, int pixel, int nPix, int /*nBars*/, f
 float fountain (double t, int barIdx, int pixel, int nPix, int /*nBars*/, float tail) noexcept
 {
     // Water jets shooting UP from the bottom: a head launches twice a beat
-    // (two in flight, staggered per bar), rising fast with a trail behind it and
-    // FADING toward the top, like a fountain losing energy. Velocity = trail
-    // length. Per-bar hashed phase so the jets don't all fire together.
+    // (two in flight, staggered per bar), rising fast with a trail behind it
+    // and FADING toward the top, like a fountain losing energy. Lives in the
+    // Wild bank (velocity = beat-speed there, `tail` arrives as 0), so the
+    // trail defaults to a mid length; per-bar hashed phase keeps the jets
+    // from firing together.
     const float ph       = hash01 (static_cast<std::uint32_t> (barIdx) * 2654435761u);
-    const float trailLen = 1.0f + tail * static_cast<float> (nPix) * 0.5f;
+    const float trail    = tail > 0.0f ? tail : 0.5f;
+    const float trailLen = 1.0f + trail * static_cast<float> (nPix) * 0.5f;
     const float top      = static_cast<float> (nPix) + 3.0f;     // head exits past the top
     float v = 0.0f;
     for (int k = 0; k < 2; ++k)
@@ -538,14 +551,6 @@ float lightning (double t, int barIdx, int /*pixel*/, int /*nPix*/, int /*nBars*
     return decay * bb;
 }
 
-float static_noise (double t, int barIdx, int pixel, int /*nPix*/, int /*nBars*/, float /*tail*/) noexcept
-{
-    // Per-pixel TV-static flicker, re-hashed 12×/beat.
-    const int frame = static_cast<int> (t * 12.0);
-    const float h = hash01 (static_cast<std::uint32_t> (frame * 131 + barIdx * 64 + pixel));
-    return h > 0.5f ? h : 0.0f;
-}
-
 float glitch (double t, int barIdx, int pixel, int nPix, int /*nBars*/, float /*tail*/) noexcept
 {
     // Random pixel blocks pop on per bar, re-rolled 6×/beat.
@@ -836,12 +841,13 @@ RecipeRGB ocean (double t, int barIdx, int pixel, int nPix, int /*nBars*/, float
 
 RecipeRGB nebula (double t, int barIdx, int pixel, int nPix, int nBars, float /*param*/) noexcept
 {
-    // Slow cosmic clouds drifting through purples and pinks.
+    // Slow cosmic clouds drifting through purples and pinks. Floor keeps the
+    // troughs dimly lit — never black; carve holes with a breathe on top.
     const float x = static_cast<float> (barIdx) / static_cast<float> (std::max (1, nBars - 1));
     const float y = static_cast<float> (pixel - 1) / static_cast<float> (nPix);
     const float cloud = std::sin (x * 2.0f + static_cast<float> (t) * 0.3f)
                       + std::sin (y * 3.0f - static_cast<float> (t) * 0.2f);
-    const float v   = std::clamp (0.4f + 0.4f * cloud, 0.0f, 1.0f);
+    const float v   = std::clamp (0.4f + 0.4f * cloud, 0.18f, 1.0f);
     const float hue = 0.78f + 0.1f * std::sin (kTwoPi * (0.1f * static_cast<float> (t)) + y * 3.0f);
     return hueToRgb (hue, v);
 }
@@ -888,13 +894,14 @@ RecipeRGB lava (double t, int barIdx, int pixel, int nPix, int /*nBars*/, float 
 RecipeRGB borealis (double t, int barIdx, int pixel, int nPix, int nBars, float /*param*/) noexcept
 {
     // Aurora curtain: slow vertical waves shimmering through green → teal →
-    // violet, brighter toward the top like a sky curtain, drifting hue.
+    // violet, brighter toward the top like a sky curtain, drifting hue. Floor
+    // keeps the troughs dimly lit — never black; mask with a breathe instead.
     const float y    = static_cast<float> (pixel - 1) / static_cast<float> (nPix);
     const float x    = static_cast<float> (barIdx) / static_cast<float> (std::max (1, nBars - 1));
     const float wave = std::sin (kTwoPi * (y * 1.2f + 0.15f * static_cast<float> (t) + x * 0.6f))
                      + 0.5f * std::sin (kTwoPi * (y * 2.3f - 0.09f * static_cast<float> (t) + x * 1.7f));
     const float hue  = 0.45f + 0.16f * wave + 0.10f * std::sin (kTwoPi * 0.04f * static_cast<float> (t));
-    const float v    = std::clamp (0.2f + 0.4f * y + 0.35f * wave, 0.0f, 1.0f);
+    const float v    = std::clamp (0.2f + 0.4f * y + 0.35f * wave, 0.18f, 1.0f);
     return hueToRgb (hue, v);
 }
 
@@ -1102,7 +1109,7 @@ constexpr std::array<DynamicFn, kNumChases> kChasesTable {{
     &wave_train,  // 32
     &expand,      // 33
     &contract,    // 34
-    &fountain,    // 35  (Fountain — jets rising from the bottom, fading at the top)
+    &chase_h,     // 35  (Chase H — whole columns sweeping across, one pass/beat)
 }};
 
 constexpr std::array<DynamicFn, kNumBreathes> kBreathesTable {{
@@ -1126,7 +1133,7 @@ constexpr std::array<DynamicFn, kNumWild> kWildTable {{
     &sparkle_few,   // 50
     &lightning,     // 51
     &glitch,        // 52
-    &static_noise,  // 53
+    &fountain,      // 53  (was Static — jets rising from the bottom, fading at the top)
     &rain,          // 54
     &waterfalls,    // 55  (was Stutter)
     &bounce,        // 56

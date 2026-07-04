@@ -226,6 +226,7 @@ int main()
     checkComposite ("to black",    { 10, 84 });
     checkComposite ("from black",  { 9, 84 });
     checkComposite ("freeze",      { 123, 24 });
+    checkComposite ("bump frozen", { 123, 120, 24 });   // bump punches through freeze
     checkComposite ("reverse",     { 124, 24 });      // real reverse + a chase
     checkComposite ("reverse breathe", { 124, 36 });  // + a breathe (also reversible)
     checkComposite ("flip",        { 125, 24 });
