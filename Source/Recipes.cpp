@@ -1042,33 +1042,67 @@ RecipeRGB disco (double t, int barIdx, int pixel, int nPix, int nBars, float /*p
                                     0.50f,   // cyan
                                     0.66f,   // blue
                                     0.85f }; // magenta
-    const int step = static_cast<int> (t * 2.0);   // ~twice per beat
-
-    // Incandescent fade: each block pops on at full and decays over its step
-    // like a filament lamp losing heat (fast attack, exponential release,
-    // still ~10% warm when the next flashes fire) — the old-school club-light
-    // feel, rather than LED-crisp on/off.
-    const float frac = static_cast<float> (t * 2.0) - static_cast<float> (step);
-    const float glow = std::exp (-2.2f * frac);
+    const int step = static_cast<int> (t * 2.0);   // aim changes ~twice per beat
 
     // This cell's block in the 4×4 block grid.
     const int bx = (barIdx * 4) / nBars;
     const int by = ((pixel - 1) * 4) / nPix;
 
-    // Four lamps, one per width-quarter (a fixed little club rig — and the
-    // blocks can never stack). For CONSISTENCY they don't all jump at once:
-    // each lamp re-aims (new height + colour) only every OTHER step — lamps
-    // 0/2 on even steps, 1/3 on odd — so ~50% of the lights persist across
-    // any step while the rest swap. All four still re-flash (the `glow`
-    // pulse) every step.
-    const int  lamp  = bx;
-    const auto epoch = static_cast<std::uint32_t> ((step + (lamp & 1)) / 2);
-    const auto salt  = static_cast<std::uint32_t> (lamp) * 40503u;
-    const int  aimBy = static_cast<int> (hash01 (epoch * 2654435761u + salt) * 4.0f);
-    if (by != aimBy)
+    // Four lamps roam the block grid. Each holds an aim — a 1×1 up to 2×2
+    // block rectangle + one palette colour — for TWO steps (one beat) and is
+    // steadily FULL ON while aimed: no per-step pulsing. Lamps 0/2 re-aim on
+    // even steps, 1/3 on odd, so ~50% of the lights persist across any step
+    // while the rest swap. The incandescent feel lives in the TURN-OFF: the
+    // cells a lamp just left fade out exponentially over the following beat,
+    // like a filament losing heat. Overlapping lamps: brightest wins.
+    float best    = 0.0f;
+    int   bestCol = 0;
+    for (int lamp = 0; lamp < 4; ++lamp)
+    {
+        const int  phase = lamp & 1;
+        const auto epoch = static_cast<std::uint32_t> ((step + phase) / 2);
+        const auto salt  = static_cast<std::uint32_t> (lamp) * 40503u;
+
+        // The lamp's aim for a given epoch: rect origin/size + colour.
+        auto aim = [salt] (std::uint32_t e, int& x0, int& y0, int& w, int& h, int& col)
+        {
+            x0  = static_cast<int> (hash01 (e * 2654435761u + salt) * 4.0f);
+            y0  = static_cast<int> (hash01 (e * 1013904223u + salt) * 4.0f);
+            w   = 1 + static_cast<int> (hash01 (e * 69069u + salt) * 2.0f);
+            h   = 1 + static_cast<int> (hash01 (e * 3643u  + salt) * 2.0f);
+            if (x0 + w > 4) x0 = 4 - w;   // clamp inside the block grid
+            if (y0 + h > 4) y0 = 4 - h;
+            col = static_cast<int> (hash01 (e * 22695477u + salt) * 6.0f);
+        };
+
+        int x0, y0, w, h, col;
+        aim (epoch, x0, y0, w, h, col);
+        if (bx >= x0 && bx < x0 + w && by >= y0 && by < y0 + h)
+        {
+            best    = 1.0f;   // steadily on while aimed
+            bestCol = col;
+            continue;
+        }
+
+        // Turn-off tail: cells the lamp aimed at LAST epoch (and has now
+        // left) cool off over this epoch.
+        if (epoch == 0u)
+            continue;
+        int px0, py0, pw, ph, pcol;
+        aim (epoch - 1u, px0, py0, pw, ph, pcol);
+        if (bx >= px0 && bx < px0 + pw && by >= py0 && by < py0 + ph)
+        {
+            // Steps into the current epoch, 0..2 (the epoch began at 2e - phase).
+            const float u = static_cast<float> (t * 2.0
+                              - (2.0 * static_cast<double> (epoch) - phase));
+            const float v = std::exp (-2.2f * u);
+            if (v > best) { best = v; bestCol = pcol; }
+        }
+    }
+
+    if (best <= 0.01f)
         return { 0.0f, 0.0f, 0.0f };
-    const int col = static_cast<int> (hash01 (epoch * 22695477u + salt) * 6.0f);
-    return hueToRgb (kPalette[col], glow);
+    return hueToRgb (kPalette[bestCol], best);
 }
 
 RecipeRGB twilight (double t, int /*barIdx*/, int pixel, int nPix, int /*nBars*/, float /*param*/) noexcept
