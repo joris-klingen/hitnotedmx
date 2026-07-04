@@ -22,9 +22,9 @@ namespace hitnotedmx
 // text + spot ellipses) is amortised across long static stretches.
 //
 // Layout:
-//   2 RGBW spots across the top, then 4 vertical bars below them (each
-//   18 cells tall, pixel 1 at the bottom matching the rig's bottom-up
-//   orientation).
+//   2 RGBW spots flanking a grid of vertical bars (rig.cols × rig.rows cells,
+//   pixel 1 at the bottom matching the rig's bottom-up orientation). The grid
+//   shape comes from setGrid(); default 4 × 18.
 class DmxVisualizer : public juce::Component,
                       private juce::Timer
 {
@@ -33,6 +33,10 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override;
+
+    // Adopt a new grid shape (editor timer feeds it the processor's rig).
+    // Re-rasterises only on an actual change.
+    void setGrid (Rig newRig);
 
     // Build the rig fingerprint; if it differs from the cached image,
     // re-rasterise the image and schedule a repaint. Called from the
@@ -50,12 +54,17 @@ private:
     void timerCallback() override;
     void rebuildCache();
 
+    // Max-grid sized so a runtime shape change never reallocates; the live
+    // shape only fills a prefix (the rest stays zero, and the shape bytes at
+    // the end make any grid change itself register as a difference).
     static constexpr int kFingerprintSize =
-        kNumBars * kPixelsPerBar * 3 + kNumSpots * 6   // rig DMX bytes
-      + kNumBars * kPixelsPerBar;                       // + 1 selection byte/cell
+        kMaxBars * kMaxRows * 3 + kNumSpots * 6   // rig DMX bytes
+      + kMaxBars * kMaxRows                        // + 1 selection byte/cell
+      + 2;                                         // + cols, rows
 
     const DmxValues&     values;
     const SelectionMask& selection;
+    Rig                  rig;   // grid shape currently drawn
 
     juce::Image cachedImage;  // ARGB; fully covers the component bounds
     std::array<std::uint8_t, kFingerprintSize> lastFingerprint {};

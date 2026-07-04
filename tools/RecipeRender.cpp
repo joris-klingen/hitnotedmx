@@ -73,8 +73,16 @@ constexpr int kLeftPad  = 104; // room for the recipe label
 constexpr int kTopPad   = 18;  // room for the time labels
 constexpr int kEdgePad  = 8;
 
-constexpr int kFrameW = kNumBars * kPxW + (kNumBars - 1) * kBarGap;
-constexpr int kFrameH = kPixelsPerBar * kPxH;
+// The offline tools render at the DEFAULT rig shape (the runtime grid is a
+// live-plugin concern; previews judge the recipes, which are parametric).
+constexpr int kFrameW = kDefaultBars * kPxW + (kDefaultBars - 1) * kBarGap;
+constexpr int kFrameH = kDefaultRows * kPxH;
+
+const GridState& defaultGrid()
+{
+    static const GridState grid = [] { GridState g; g.rebuild(); return g; }();
+    return grid;
+}
 
 const juce::Colour kBg { 0xff141414 };
 
@@ -87,18 +95,18 @@ juce::uint8 screenByte (float v) noexcept
     return static_cast<juce::uint8> (juce::jlimit (0, 255, static_cast<int> (curved * 255.0f + 0.5f)));
 }
 
-// Draw the 4×18 rig at one instant into the box whose top-left is (x, y).
+// Draw the default 4×18 rig at one instant into the box whose top-left is (x, y).
 void drawFrame (juce::Graphics& g, const DmxValues& v, int x, int y)
 {
-    for (int barIdx = 0; barIdx < kNumBars; ++barIdx)
+    const Rig& rig = defaultGrid().rig;
+    for (int barIdx = 0; barIdx < rig.cols; ++barIdx)
     {
-        const auto& bar = kBars[static_cast<size_t> (barIdx)];
         const int bx = x + barIdx * (kPxW + kBarGap);
 
-        for (int pixel = 1; pixel <= bar.pixels; ++pixel)
+        for (int pixel = 1; pixel <= rig.rows; ++pixel)
         {
-            const auto ch = bar.channelsFor (pixel);
-            const int row = bar.pixels - pixel;          // pixel 1 at the bottom
+            const auto ch = rig.channelsFor (barIdx, pixel);
+            const int row = rig.rows - pixel;            // pixel 1 at the bottom
             const int py  = y + row * kPxH;
             g.setColour (juce::Colour::fromRGB (screenByte (v.get (ch[0])),
                                                 screenByte (v.get (ch[1])),
@@ -219,7 +227,7 @@ int renderRows (const juce::File& out, const std::vector<Row>& rows,
         DmxValues vals;
         for (int f = 0; f < frames; ++f)
         {
-            computeDmx (state, f * bpf, vals);
+            computeDmx (state, f * bpf, vals, defaultGrid());
             const int fx = kLeftPad + f * (kFrameW + kFrameGap);
             drawFrame (g, vals, fx, rowY);
         }
@@ -360,7 +368,7 @@ int renderClipGrid (const juce::File& out, std::vector<ClipRow>& rows,
                                          static_cast<std::uint8_t> (e.vel), e.beat);
                 else      state.noteOff (static_cast<std::uint8_t> (e.pitch));
             }
-            computeDmx (state, tb, vals, 1.0f, 1.0f, &fade, dtSec);
+            computeDmx (state, tb, vals, defaultGrid(), 1.0f, 1.0f, &fade, dtSec);
             drawFrame (g, vals, labelW + f * (kFrameW + kFrameGap), rowY);
         }
 
@@ -395,21 +403,21 @@ Stats analyse (int pitch, int vel, int frames, double bpf)
     MidiState state;
     state.noteOn (static_cast<std::uint8_t> (pitch), 1, static_cast<std::uint8_t> (vel), 0.0);
 
-    constexpr int kLeds = kNumBars * kPixelsPerBar;   // 72
+    const Rig& rig = defaultGrid().rig;
+    const int kLeds = rig.cells();   // 72 at the default shape
     double fillSum = 0.0, covSum = 0.0;
     float  minCov = 1.0f, maxCov = 0.0f;
     DmxValues vals;
 
     for (int f = 0; f < frames; ++f)
     {
-        computeDmx (state, f * bpf, vals);
+        computeDmx (state, f * bpf, vals, defaultGrid());
         int lit = 0; double frameFill = 0.0;
-        for (int b = 0; b < kNumBars; ++b)
+        for (int b = 0; b < rig.cols; ++b)
         {
-            const auto& bar = kBars[static_cast<size_t> (b)];
-            for (int p = 1; p <= bar.pixels; ++p)
+            for (int p = 1; p <= rig.rows; ++p)
             {
-                const auto ch = bar.channelsFor (p);
+                const auto ch = rig.channelsFor (b, p);
                 const float inten = juce::jmax (vals.get (ch[0]), juce::jmax (vals.get (ch[1]), vals.get (ch[2])));
                 frameFill += inten;
                 if (inten > kLitThresh) ++lit;

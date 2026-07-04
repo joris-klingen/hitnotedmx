@@ -94,6 +94,15 @@ void DmxVisualizer::paint (juce::Graphics& g)
         g.fillAll (juce::Colour (0xff141414));
 }
 
+void DmxVisualizer::setGrid (Rig newRig)
+{
+    if (newRig.cols == rig.cols && newRig.rows == rig.rows)
+        return;
+    rig = newRig;
+    rebuildCache();
+    repaint();
+}
+
 void DmxVisualizer::setStrobe (float hz)
 {
     // One lit frame per period, the rest black — same shape as the driver
@@ -145,13 +154,17 @@ void DmxVisualizer::rebuildCache()
 
     g.fillAll (juce::Colour (0xff141414));
 
-    const int barW       = 32;   // ~2:1 cells (was 64); spots no longer stack on top
     const int barSpacing = 10;
     const int spotSize   = 52;
     const int spotGap    = 26;   // breathing room between a spot and the grid
     const int topPad     = 6;    // inset above the rig (≈ the cards' top inset)
     const int bottomPad  = 2;    // inset below the captions
     const int labelH     = 14;   // reserved under each fixture for the "dNNN" caption
+
+    // Bar width adapts to the column count so a wide grid still fits between
+    // the spots: 32 px at the default 4 bars, clamped no thinner than 10.
+    const int availForBars = w - 2 * spotSize - 2 * spotGap - (rig.cols - 1) * barSpacing;
+    const int barW = juce::jlimit (10, 32, availForBars / juce::jmax (1, rig.cols));
 
     // The bar grid fills the FULL pane height: top flush with the cards' top,
     // captions flush with the cards' bottom. Row edges are interpolated across
@@ -160,13 +173,13 @@ void DmxVisualizer::rebuildCache()
     // top of screen-row r, and the grid bottom (rowY(nPix)) carries the
     // captions.
     const int originY = topPad;
-    const int gridH   = juce::jmax (kPixelsPerBar * 4, h - topPad - labelH - bottomPad);
-    auto rowY = [originY, gridH] (int screenRow)
+    const int gridH   = juce::jmax (rig.rows * 4, h - topPad - labelH - bottomPad);
+    auto rowY = [originY, gridH, nPix = rig.rows] (int screenRow)
     {
-        return originY + (gridH * screenRow) / kPixelsPerBar;
+        return originY + (gridH * screenRow) / nPix;
     };
 
-    const int barsTotalW = kNumBars * barW + (kNumBars - 1) * barSpacing;
+    const int barsTotalW = rig.cols * barW + (rig.cols - 1) * barSpacing;
 
     // Whole rig laid out horizontally: spot_l | bar grid | spot_r, centred.
     const int rigW    = spotSize + spotGap + barsTotalW + spotGap + spotSize;
@@ -232,14 +245,13 @@ void DmxVisualizer::rebuildCache()
     // shows, plus the grey selection rectangle — then (2) draw the lit round
     // LEDs on top. Layout constants are unchanged; only the shape within each
     // cell changes (idle = rectangle, lit = round dot + bloom).
-    for (int barIdx = 0; barIdx < kNumBars; ++barIdx)
+    for (int barIdx = 0; barIdx < rig.cols; ++barIdx)
     {
-        const auto& bar = kBars[barIdx];
         const int x = barsX + barIdx * (barW + barSpacing);
 
-        for (int pixel = 1; pixel <= bar.pixels; ++pixel)
+        for (int pixel = 1; pixel <= rig.rows; ++pixel)
         {
-            const int row = bar.pixels - pixel;  // pixel 1 at the bottom
+            const int row = rig.rows - pixel;  // pixel 1 at the bottom
             const int y0  = rowY (row);
             const int cellH = juce::jmax (1, rowY (row + 1) - y0 - 2);
 
@@ -257,24 +269,23 @@ void DmxVisualizer::rebuildCache()
         }
 
         // Start DMX address, small, under the bar (flush with the pane bottom).
-        drawAddress (g, bar.dmxStart, x, rowY (bar.pixels), barW);
+        drawAddress (g, rig.barStart (barIdx), x, rowY (rig.rows), barW);
     }
 
-    for (int barIdx = 0; barIdx < kNumBars; ++barIdx)
+    for (int barIdx = 0; barIdx < rig.cols; ++barIdx)
     {
-        const auto& bar = kBars[barIdx];
         const int x = barsX + barIdx * (barW + barSpacing);
 
-        for (int pixel = 1; pixel <= bar.pixels; ++pixel)
+        for (int pixel = 1; pixel <= rig.rows; ++pixel)
         {
-            const auto ch  = bar.channelsFor (pixel);
+            const auto ch  = rig.channelsFor (barIdx, pixel);
             const float r  = values.get (ch[0]);
             const float gv = values.get (ch[1]);
             const float b  = values.get (ch[2]);
             if (juce::jmax (r, juce::jmax (gv, b)) <= 0.02f)
                 continue;   // idle — only the black socket above shows
 
-            const int row = bar.pixels - pixel;  // pixel 1 at the bottom
+            const int row = rig.rows - pixel;  // pixel 1 at the bottom
             const int y0  = rowY (row);
             const int cellH = juce::jmax (1, rowY (row + 1) - y0 - 2);
 
@@ -296,12 +307,11 @@ void DmxVisualizer::repaintIfChanged()
     // never triggers an unnecessary re-rasterisation.
     std::array<std::uint8_t, kFingerprintSize> current {};
     int i = 0;
-    for (int b = 0; b < kNumBars; ++b)
+    for (int b = 0; b < rig.cols; ++b)
     {
-        const auto& bar = kBars[b];
-        for (int p = 1; p <= bar.pixels; ++p)
+        for (int p = 1; p <= rig.rows; ++p)
         {
-            const auto ch = bar.channelsFor (p);
+            const auto ch = rig.channelsFor (b, p);
             current[i++] = toByte (values.get (ch[0]));
             current[i++] = toByte (values.get (ch[1]));
             current[i++] = toByte (values.get (ch[2]));
@@ -319,9 +329,14 @@ void DmxVisualizer::repaintIfChanged()
     }
     // Selection outlines: the rig is black in the armed-but-unlit state, so the
     // DMX bytes above don't capture a selection change — fingerprint it too.
-    for (int b = 0; b < kNumBars; ++b)
-        for (int p = 1; p <= kBars[b].pixels; ++p)
+    for (int b = 0; b < rig.cols; ++b)
+        for (int p = 1; p <= rig.rows; ++p)
             current[i++] = selection.cell[static_cast<size_t> (b)][static_cast<size_t> (p)] ? 1 : 0;
+
+    // The shape itself, so a grid change forces a re-rasterisation even when
+    // the (prefix-packed) channel bytes happen to match.
+    current[kFingerprintSize - 2] = static_cast<std::uint8_t> (rig.cols);
+    current[kFingerprintSize - 1] = static_cast<std::uint8_t> (rig.rows);
 
     if (current == lastFingerprint)
         return;

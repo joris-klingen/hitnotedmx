@@ -33,7 +33,8 @@ ENTTEC USB Pro hardware with the 228-channel rig lit (smoke test passed).
 | Layer | File(s) | State |
 |-------|---------|-------|
 | VST plumbing | `PluginProcessor.{h,cpp}`, `CMakeLists.txt` | **Instrument shape** (`IS_SYNTH=TRUE`, VST3 category `Instrument`): a single stereo audio **output** bus that emits silence, no audio input, MIDI input on. It loads on a MIDI track as the instrument and receives MIDI directly. The silent audio bus is what makes Live load it — the pure MIDI-effect shape (`IS_MIDI_EFFECT=TRUE`, no audio bus) did **not** load in Live, which is why we don't use it. Changing from the old audio-effect shape moved the plugin from Live's *Audio Effects* to *Instruments*, so sessions saved against the old shape must re-add it. **Automatable params are now ONLY the three master controls** (LED dim / spot dim / pixel density). The old 512 per-DMX-channel `chN` params (a fossil of the pre-vocabulary RGB-automation era) were **removed**: `processBlock` rewrites all 228 rig channels from the recipe engine every block, so any host-automated/manual `chN` value was clobbered ~40–90×/s — the params did nothing for the rig while bloating saved sessions and the host automation list. Old sessions still load (APVTS ignores the stale `chN` nodes; the master params keep their string IDs). |
-| Rig | `Rig.h` | `constexpr` 4-bar × 18-pixel + 2-spot layout (228 channels: bars DMX 1–216, spots 217/223). |
+| Rig | `Rig.h` | **Runtime grid shape** (`Rig` POD: cols × rows, default 4 × 18) + 2 spots **pinned at the bottom of the universe** so a re-shape never re-patches them: spot_l DMX 1–6, spot_r 7–12, bars contiguous from ch 13 (3 ch/pixel, column-major). Caps: cols ≤ 8, rows ≤ 32 (masks stay uint32), cols×rows ≤ 166 (universe budget). Default 4×18 = 228 channels (bars 13–228). |
+| Grid apply | `Composition.{h,cpp}`, `PluginProcessor.{h,cpp}`, `PluginEditor.cpp` | The editor's **grid section** (cols × rows + *Set grid*, above the utility buttons) calls `setGridShape`, which packs the pair into ONE atomic (`gridRequest`, never tears) and stamps `gridCols`/`gridRows` **properties** on the APVTS state tree (persisted with the session; deliberately NOT host-automatable — automating bar count would live-repatch DMX mid-song). `processBlock` step 0 applies a changed request: updates `grid.rig`, calls `GridState::rebuild()` (noexcept, allocation-free — pixel-zone masks: pixel p → zone `((p-1)*9)/rows`, reproducing the original 2-pixel pairs at 18 rows; Even/Odd/Thirds combs modular; density rank re-ranked per bar), resets bump/xfade state and zeroes all 512 driver channels once so a shrink leaves no stale bytes lit. All grid-dependent buffers (`SelectionMask`, xfade, visualiser fingerprint) are preallocated at the 8×32 max, so applying never allocates. **Bar selectors are positional** — Left / Mid left / Mid right / Right (pitches 5–8): the ends are **exclusive** (Left owns the outermost left bar(s), Right the outermost right, no other selector touches them; 1 bar each up to 6 cols, 2 from 7 — `e = max(1, (cols+1)/4)`), the mids split the bars in between half-and-half and **share the centre bar** when that count is odd (see `selectorCoversBar`). Identical to the old per-bar mapping at 4 cols; 2 cols leaves the mids empty, 1 col collapses Left = Right. |
 | Palette | `Palette.h` | Two separate tables. Primary `kPalette` (24 colours) spans two octaves 84–107 (C5–B6); secondary `kSecondaryPalette` (12 softer complementary accents) is one octave 108–119 (C7). `paletteColorFor(start, offset)` picks the table; `kSecondaryPaletteEnd` (120) bounds the range. |
 | Held-note tracker | `MidiState.{h,cpp}` | 128-slot array indexed by pitch. O(1) noteOn/noteOff/clear, no allocations. |
 | Dynamic recipes | `Recipes.{h,cpp}` | Four feel-groups, each a full chromatic octave starting on a C, all function-pointer dispatch (one table per group), 48 recipes total. Each table is ordered logically and matches the menu columns 1:1. **Chases C0 (24–35):** chase, comets, ping-pong, diag, radar, snake, theater, spiral, waves, expand, contract, fountain (direction is the global Flip/Reverse notes now, not up/dn variants). **Breathes C1 (36–47):** tide, sine, ripple, ripple H, bloom, halo, moon rise, soft ball, drift, aurora, shimmer, glow. **Wild C2 (48–59):** strobe (root C, null slot — driver-level shutter), sparkle, sparkle few, lightning, glitch, static, rain, waterfalls, bounce, fast ball, pong (beat-synced here), burst. **Multicolor C3–C4 (60–83, two octaves, 24):** self-coloured `DynamicColorFn` recipes returning RGB directly — rainbow, comet, VU meter, VU smooth, fire, embers, magma, lava, heatmap, ocean, forest, desert (C3); sunset, twilight, borealis, night sky, galaxy, nebula, storm, plasma, police, disco, velvet, rouge (C4). `DynamicFn` carries a `tail` arg (0..1); `DynamicColorFn` carries a `param` arg (VU gain). Moving-head chases render a velocity-driven comet trail via `cometBrightness` / `cometBrightnessF`. |
@@ -109,7 +110,8 @@ ctest --test-dir build                 # mapping-frozen + recipe-range (see belo
 Two CTests run:
 - **mapping-frozen** — live vocab matches `mappings/v<N>.tsv` (drift guard).
 - **recipe-range** — drives the real recipes + `computeDmx` over a beat /
-  velocity / density sweep and fails on any non-finite or out-of-range output
+  velocity / density / grid-shape sweep (4×18, 6×24, 2×32, 8×1) and fails on
+  any non-finite or out-of-range output
   (`tools/RecipeCheck.cpp`). A cheap engine regression net; the golden-image
   diff (recipe *look*, not just range) is still the bigger render tool in
   TODO #2.
@@ -131,6 +133,32 @@ table in the project README.
 
 Reverse-chronological, newest first — the single record of shipped work
 (the per-layer table above is the current-state reference).
+
+- **Parametric grid shape (mapping v10, TODO 7a)** — the rig geometry is a
+  RUNTIME setting: a `Rig` POD (cols × rows, default 4 × 18) replaces the
+  `constexpr` 4×18 tables. **DMX re-addressed** — the spots are pinned at the
+  bottom of the universe (spot_l 1–6, spot_r 7–12) so re-shaping never
+  re-patches them; bars run contiguously from ch 13 (the physical rig needs a
+  one-time re-patch even at 4×18: bars 1/55/109/163 → 13/67/121/175, spots
+  217/223 → 1/7). Bounds: cols ≤ 8, rows ≤ 32 (pixel masks stay `uint32`),
+  cols×rows ≤ 166. The editor gains a small **grid section** (cols × rows +
+  *Set grid*) above the utility buttons (the MIDI log shrank to fit); the
+  shape persists as `gridCols`/`gridRows` state-tree properties (not
+  host-automatable). Handoff is one packed atomic; the audio thread rebuilds
+  the derived tables in `GridState::rebuild()` (allocation-free, all buffers
+  preallocated at 8×32) and zeroes the full universe once per apply so a
+  shrink can't leave stale channels lit. **Bar selectors renamed** Bar 1–4 →
+  **Left / Mid left / Mid right / Right** with positional semantics —
+  Left/Right own the outermost bar(s) exclusively (1 each up to 6 cols, 2
+  from 7), the mids split the bars in between and share the centre bar on
+  odd counts (identical at 4 cols); zone selectors generalise as bottom-up row spans
+  (`zone(p) = ((p-1)*9)/rows`, the original pairs at 18 rows); the recipes
+  were already parametric (`nBars`/`nPix` args) and needed no changes.
+  Visualiser draws the live shape (adaptive bar width, max-size fingerprint +
+  shape bytes); `recipe-check` now sweeps `computeDmx` at 4×18, 6×24, 2×32
+  and 8×1. Frozen as **`mappings/v10.tsv`** — pitches 5–8 are unchanged, so
+  existing clips keep working; re-run *Init. names* to refresh rack chain
+  names.
 
 - **Recipe-bank refinement pass (mapping v9)** — new recipes, renames + a
   reshuffle, and tuning, all behind one freeze. **New chases** filling the slots

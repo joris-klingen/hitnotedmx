@@ -30,9 +30,13 @@ std::vector<Column> build()
     std::vector<Column> c;
 
     // Octave -2: total blackout (C-2) at the bottom, spots + bars above.
+    // The four bar selectors are POSITIONAL (Left/Right own the outermost
+    // bars exclusively, the mids split the rest — see Composition.cpp
+    // selectorCoversBar), so they're named by position rather than bar number
+    // and stay meaningful at any column count.
     c.push_back (trig ("Spots & bars", kSpotBarOctave,
         { "Blackout", "Spot L WW", "Spot L col", "Spot R WW", "Spot R col",
-          "Bar 1", "Bar 2", "Bar 3", "Bar 4", "From black", "To black" }));
+          "Left", "Mid left", "Mid right", "Right", "From black", "To black" }));
 
     c.push_back (trig ("Zones", kZonesStart,
         { "Zone 1", "Zone 2", "Zone 3", "Zone 4", "Zone 5", "Zone 6",
@@ -87,7 +91,8 @@ juce::String prefixFor (const juce::String& title, const juce::String& label)
     {
         if (label == "Blackout")      return "bk";
         if (label.startsWith ("Spot")) return "sp";
-        if (label.startsWith ("Bar"))  return "ba";
+        if (label == "Left" || label == "Mid left"
+            || label == "Mid right" || label == "Right") return "ba";
         // To/from-black are master fades that live in this octave; keep the "ms"
         // chain-name key stable so clips migrate across the move by chainName.
         if (label == "From black" || label == "To black") return "ms";

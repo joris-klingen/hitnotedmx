@@ -5,7 +5,7 @@
 
 #include "EnttecProDmx.h"   // kDmxUniverseSize
 #include "MidiState.h"
-#include "Rig.h"            // kNumBars, kPixelsPerBar
+#include "Rig.h"            // Rig, kMaxBars, kMaxRows
 
 namespace hitnotedmx
 {
@@ -52,10 +52,34 @@ private:
 // affects DMX. Preallocated and reused; the composition pass never allocates.
 struct SelectionMask
 {
-    // [bar][pixel], pixel 1-based (index 0 unused) to match the rig.
-    std::array<std::array<bool, kPixelsPerBar + 1>, kNumBars> cell {};
+    // [bar][pixel], pixel 1-based (index 0 unused) to match the rig. Sized to
+    // the max grid; the live shape only touches [0..cols)[1..rows].
+    std::array<std::array<bool, kMaxRows + 1>, kMaxBars> cell {};
 
     void clear() noexcept { for (auto& b : cell) b.fill (false); }
+};
+
+// The runtime grid shape plus the lookup tables derived from it (pixel-zone
+// masks + the per-bar density rank). rebuild() is noexcept and allocation-free
+// (bounded by kMaxBars × kMaxRows²) so the audio thread can call it when the
+// editor requests a new shape — all state stays audio-thread-owned.
+struct GridState
+{
+    Rig rig;
+
+    // Pixel statics (pitches 12..23): bit n = pixel (n+1), 1 = bottom.
+    // Zones 1-9 are contiguous bottom-up row spans (pixel p → zone
+    // ((p-1)*9)/rows, reproducing the original 2-pixel pairs at rows = 18),
+    // followed by the Even / Odd / Thirds combs. rows ≤ kMaxRows = 32 keeps
+    // each mask a single uint32.
+    static constexpr int kNumPixelMasks = 12;
+    std::array<std::uint32_t, kNumPixelMasks> pixelMask {};
+
+    // Stable per-pixel gate value in [0, 1) for the pixel-density control —
+    // see the comment at GridState::rebuild() in Composition.cpp.
+    std::array<std::array<float, kMaxRows + 1>, kMaxBars> densityRank {};
+
+    void rebuild() noexcept;
 };
 
 // Persistent state for the master controls, advanced in beat-time by computeDmx
@@ -71,8 +95,9 @@ struct SelectionMask
 //     1, "From black" 0; `blackLevel` glides toward it at the note's velocity.
 //     Output is scaled by (1 - blackLevel). A from-black note at velocity 1 is a
 //     "hold black" sentinel: it stays fully black while held instead of rising.
-//   • xfade: the crossfade buffer — the displayed bar RGB (kNumBars × kPixelsPerBar
-//     × 3), slewed toward the composed scene while the Crossfade note is held.
+//   • xfade: the crossfade buffer — the displayed bar RGB (max-grid sized,
+//     indexed with a kMaxRows stride so indices are grid-independent), slewed
+//     toward the composed scene while the Crossfade note is held.
 // Pass nullptr to disable the master controls (e.g. the offline render tool).
 struct BumpState
 {
@@ -84,7 +109,7 @@ struct BumpState
     double lastToBlackStart   = -1.0;  // start beat of the live to-black note (per-note onset)
 
     // Crossfade: the displayed bar frame, slewed toward the scene (bars only).
-    std::array<float, kNumBars * kPixelsPerBar * 3> xfade {};
+    std::array<float, kMaxBars * kMaxRows * 3> xfade {};
     bool   xfadeHave = false;       // false = (re)initialise to the scene next block
 
     // Real reverse: the phase clock for the reversible movers (chases/breathes).
@@ -194,6 +219,7 @@ struct ColorFadeState
 // lowering density removes pixels without flicker and without diagonal
 // banding. Spots are unaffected.
 void computeDmx (const MidiState& state, double tBeats, DmxValues& outValues,
+                 const GridState& grid,
                  float ledMasterDim = 1.0f, float spotMasterDim = 1.0f,
                  ColorFadeState* fade = nullptr, double dtSeconds = 0.0,
                  float pixelDensity = 1.0f, SelectionMask* selection = nullptr,

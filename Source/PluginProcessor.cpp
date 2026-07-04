@@ -21,7 +21,7 @@ HitNoteDmxAudioProcessor::createParameterLayout()
     // block and feeds them into computeDmx(). The value<->text functions
     // format as a percentage in both the host and the attached on-screen knob.
     //
-    // These three are the ONLY host-automatable parameters: the 228 rig DMX
+    // These three are the ONLY host-automatable parameters: the rig DMX
     // channels are written every block from the recipe engine (see
     // processBlock), so exposing them as automatable params was a no-op (the
     // engine clobbered any host value each block) — they were dropped.
@@ -75,6 +75,10 @@ void HitNoteDmxAudioProcessor::prepareToPlay (double sampleRate, int /*samplesPe
     liveMidi.clear();
     previewMidi.clear();
     midiState.clear();
+    // previewMidi is empty again, so forget what applyPreview thinks it holds —
+    // otherwise latched preview tiles would never be re-injected after a
+    // re-prepare (sample-rate change, host re-enabling the plugin).
+    appliedPreview.fill (-1);
     colorFade.reset();
     freeRunBeats = 0.0;
 }
@@ -96,6 +100,25 @@ void HitNoteDmxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 {
     juce::ScopedNoDenormals noDenormals;
     buffer.clear();
+
+    // 0. Apply a pending grid-shape change (editor "Set grid" / state load).
+    //    Rebuilding the derived tables is noexcept and allocation-free, and
+    //    every grid-dependent buffer is preallocated at the max shape, so this
+    //    is audio-thread safe. The bump/xfade state is reset (its indices mean
+    //    different cells now) and ALL universe channels are zeroed once so a
+    //    shrink can't leave stale bytes lit on the wire past the new footprint.
+    const auto gridReq = gridRequest.load (std::memory_order_relaxed);
+    if (gridReq != appliedGrid)
+    {
+        grid.rig.cols = static_cast<int> (gridReq >> 8);
+        grid.rig.rows = static_cast<int> (gridReq & 0xffu);
+        grid.rebuild();
+        bumpState.reset();
+        dmxValues.clear();
+        for (int ch = 1; ch <= kDmxUniverseSize; ++ch)
+            dmx.setChannel (ch, 0);
+        appliedGrid = gridReq;
+    }
 
     // 1. Get the host's musical timeline so we can stamp incoming notes
     //    and feed the composition with a beat-time `t`.
@@ -183,7 +206,7 @@ void HitNoteDmxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     const float spotDim = spotMasterDimParam != nullptr ? spotMasterDimParam->load() : 1.0f;
     const float density = pixelDensityParam  != nullptr ? pixelDensityParam->load()  : 1.0f;
     const double dtSeconds = static_cast<double> (buffer.getNumSamples()) / sampleRate_;
-    computeDmx (midiState, blockStartBeat, dmxValues, ledDim, spotDim, &colorFade, dtSeconds, density, &selection, &bumpState);
+    computeDmx (midiState, blockStartBeat, dmxValues, grid, ledDim, spotDim, &colorFade, dtSeconds, density, &selection, &bumpState);
 
     // Strobe is a global shutter applied in the DMX driver's send loop (so
     // it stays locked to the output clock and free of audio-block jitter).
@@ -201,7 +224,7 @@ void HitNoteDmxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     // 4. Push every rig channel out to the ENTTEC widget. The driver
     //    holds a CriticalSection internally.
     const auto* const v = dmxValues.raw();
-    for (int ch1 = 1; ch1 <= kRigChannels; ++ch1)
+    for (int ch1 = 1; ch1 <= grid.rig.rigChannels(); ++ch1)
     {
         const float f = v[ch1 - 1];
         const int byte = juce::jlimit (0, 255, static_cast<int> (f * 255.0f + 0.5f));
@@ -242,7 +265,35 @@ void HitNoteDmxAudioProcessor::setStateInformation (const void* data, int sizeIn
 {
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
         if (xml->hasTagName (parameters.state.getType()))
+        {
             parameters.replaceState (juce::ValueTree::fromXml (*xml));
+
+            // Grid shape rides the state tree as plain properties (it is not
+            // host-automatable). Old sessions lack them → default 4 × 18.
+            // Clamped like setGridShape, but stored directly: this can run off
+            // the message thread, and replaceState already carried the
+            // properties, so no re-stamp is needed.
+            const int cols = juce::jlimit (1, kMaxBars,
+                static_cast<int> (parameters.state.getProperty (kGridColsProp, kDefaultBars)));
+            const int rows = juce::jlimit (1, kMaxRows,
+                static_cast<int> (parameters.state.getProperty (kGridRowsProp, kDefaultRows)));
+            if (cols * rows <= kMaxGridCells)
+                gridRequest.store (packGrid (cols, rows));
+        }
+}
+
+Rig HitNoteDmxAudioProcessor::setGridShape (int cols, int rows)
+{
+    cols = juce::jlimit (1, kMaxBars, cols);
+    rows = juce::jlimit (1, kMaxRows, rows);
+    // Universe budget: shrink rows first (the finer axis) until it fits.
+    while (cols * rows > kMaxGridCells && rows > 1)
+        --rows;
+
+    gridRequest.store (packGrid (cols, rows));
+    parameters.state.setProperty (kGridColsProp, cols, nullptr);
+    parameters.state.setProperty (kGridRowsProp, rows, nullptr);
+    return { cols, rows };
 }
 
 void HitNoteDmxAudioProcessor::setPreviewPitches (const std::vector<int>& pitches)

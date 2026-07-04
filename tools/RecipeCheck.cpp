@@ -76,11 +76,11 @@ void checkBrightnessBank (const char* bank, int start, int count)
         if (fn == nullptr)
             continue;   // e.g. the null strobe slot — covered by the dispatch check
         for (double t : ts)
-            for (int b = 0; b < kNumBars; ++b)
-                for (int p = 1; p <= kPixelsPerBar; ++p)
+            for (int b = 0; b < kDefaultBars; ++b)
+                for (int p = 1; p <= kDefaultRows; ++p)
                     for (float arg : kArgs)
                     {
-                        const float v = fn (t, b, p, kPixelsPerBar, kNumBars, arg);
+                        const float v = fn (t, b, p, kDefaultRows, kDefaultBars, arg);
                         if (! inRange01 (v))
                         {
                             fail (juce::String (bank) + " pitch " + juce::String (pitch)
@@ -101,11 +101,11 @@ void checkColorBank()
         auto fn = getColorRecipe (pitch);
         if (fn == nullptr) { fail ("color dispatch null at pitch " + juce::String (pitch)); continue; }
         for (double t : ts)
-            for (int b = 0; b < kNumBars; ++b)
-                for (int p = 1; p <= kPixelsPerBar; ++p)
+            for (int b = 0; b < kDefaultBars; ++b)
+                for (int p = 1; p <= kDefaultRows; ++p)
                     for (float arg : kArgs)
                     {
-                        const auto c = fn (t, b, p, kPixelsPerBar, kNumBars, arg);
+                        const auto c = fn (t, b, p, kDefaultRows, kDefaultBars, arg);
                         if (! inRange01 (c.r) || ! inRange01 (c.g) || ! inRange01 (c.b))
                         {
                             fail ("Multicolor pitch " + juce::String (pitch) + " → ("
@@ -149,34 +149,48 @@ MidiState held (const std::vector<int>& pitches, std::uint8_t vel)
     return s;
 }
 
+// Grid shapes the end-to-end sweep runs at: the default rig plus non-default
+// shapes (wider / narrower / extremes) so the runtime-parametric path — masks,
+// density rank, quarter selectors, addressing — is regression-checked too.
+const std::array<Rig, 4> kGridShapes {{ { kDefaultBars, kDefaultRows },
+                                        { 6, 24 }, { 2, 32 }, { kMaxBars, 1 } }};
+
 void checkComposite (const char* label, const std::vector<int>& pitches)
 {
     const auto ts = beatSweep();
-    for (std::uint8_t vel : { std::uint8_t (1), std::uint8_t (64), std::uint8_t (127) })
-        for (float density : { 0.0f, 0.5f, 1.0f })   // gate edges + middle
-        {
-            // Fresh stateful helpers per config; advanced across the sweep so
-            // the fade / bump envelopes are exercised over time, as in the host.
-            ColorFadeState fade;
-            BumpState      bump;
-            SelectionMask  sel;
-            DmxValues      out;
-            const MidiState state = held (pitches, vel);
+    for (const Rig shape : kGridShapes)
+    {
+        GridState grid;
+        grid.rig = shape;
+        grid.rebuild();
 
-            for (double t : ts)
+        for (std::uint8_t vel : { std::uint8_t (1), std::uint8_t (64), std::uint8_t (127) })
+            for (float density : { 0.0f, 0.5f, 1.0f })   // gate edges + middle
             {
-                computeDmx (state, t, out, 1.0f, 1.0f, &fade, 0.02, density, &sel, &bump);
-                const float* v = out.raw();
-                for (int i = 0; i < DmxValues::kSize; ++i)
-                    if (! inRange01 (v[i]))
-                    {
-                        fail (juce::String ("computeDmx [") + label + "] ch " + juce::String (i + 1)
-                              + " → " + juce::String (v[i]) + " (vel=" + juce::String ((int) vel)
-                              + " density=" + juce::String (density) + " t=" + juce::String (t) + ")");
-                        return;   // one report per config set
-                    }
+                // Fresh stateful helpers per config; advanced across the sweep so
+                // the fade / bump envelopes are exercised over time, as in the host.
+                ColorFadeState fade;
+                BumpState      bump;
+                SelectionMask  sel;
+                DmxValues      out;
+                const MidiState state = held (pitches, vel);
+
+                for (double t : ts)
+                {
+                    computeDmx (state, t, out, grid, 1.0f, 1.0f, &fade, 0.02, density, &sel, &bump);
+                    const float* v = out.raw();
+                    for (int i = 0; i < DmxValues::kSize; ++i)
+                        if (! inRange01 (v[i]))
+                        {
+                            fail (juce::String ("computeDmx [") + label + "] ch " + juce::String (i + 1)
+                                  + " → " + juce::String (v[i]) + " (grid=" + juce::String (shape.cols)
+                                  + "x" + juce::String (shape.rows) + " vel=" + juce::String ((int) vel)
+                                  + " density=" + juce::String (density) + " t=" + juce::String (t) + ")");
+                            return;   // one report per config set
+                        }
+                }
             }
-        }
+    }
 }
 }  // namespace
 

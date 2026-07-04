@@ -97,6 +97,25 @@ public:
     // lower thins a stable per-bar subset of pixels (see computeDmx).
     static constexpr const char* kPixelDensityId  = "pixelDensity";
 
+    // Grid shape (bar count × pixels per bar). NOT an automatable parameter —
+    // automating it would live-repatch the DMX addressing mid-song — but
+    // persisted with the session as properties on the parameter tree.
+    static constexpr const char* kGridColsProp = "gridCols";
+    static constexpr const char* kGridRowsProp = "gridRows";
+
+    // Request a new grid shape (message thread). Clamps to the per-axis caps
+    // and the universe budget (cols × rows ≤ kMaxGridCells); the audio thread
+    // applies it at the top of the next processBlock. Returns the shape
+    // actually stored (after clamping).
+    Rig setGridShape (int cols, int rows);
+
+    // The currently requested grid shape, for the editor / visualiser.
+    Rig getRig() const noexcept
+    {
+        const auto req = gridRequest.load (std::memory_order_relaxed);
+        return { static_cast<int> (req >> 8), static_cast<int> (req & 0xffu) };
+    }
+
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
@@ -126,6 +145,19 @@ private:
     SelectionMask publishedSelection;
     ColorFadeState colorFade;  // persists colour-fade state across blocks
     BumpState  bumpState;      // persists bump release-tail envelopes across blocks
+
+    // Grid shape handoff (GUI/state thread → audio thread). Cols and rows are
+    // packed into ONE atomic ((cols << 8) | rows) so the pair can never tear;
+    // `appliedGrid` is audio-thread bookkeeping (0 = force the first apply,
+    // which builds the derived tables in `grid`). All grid-dependent buffers
+    // are max-size, so applying a shape never allocates.
+    static constexpr std::uint32_t packGrid (int cols, int rows) noexcept
+    {
+        return (static_cast<std::uint32_t> (cols) << 8) | static_cast<std::uint32_t> (rows);
+    }
+    std::atomic<std::uint32_t> gridRequest { packGrid (kDefaultBars, kDefaultRows) };
+    std::uint32_t              appliedGrid { 0 };
+    GridState                  grid;   // audio-thread owned
 
     // Preview injection. previewPitch[] is written by the GUI thread and
     // read on the audio thread; -1 = empty slot. appliedPreview is

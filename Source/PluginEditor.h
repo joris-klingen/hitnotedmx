@@ -162,6 +162,16 @@ private:
     juce::TextButton showClipsButton   { "Show clips" };    // open the demo-clips folder
     juce::Label      deviceStatusLabel;
 
+    // Grid-shape section (cols × rows + "Set grid"), one small row above the
+    // utility buttons. Applies via proc.setGridShape — a structural setting,
+    // deliberately not a host parameter.
+    juce::Label      gridSectionLabel;
+    juce::TextEditor gridColsEdit, gridRowsEdit;
+    juce::Label      gridXLabel;
+    juce::TextButton setGridButton { "Set grid" };
+    void applyGridFromFields();
+    void showGridFields (Rig r);   // mirror a shape into the two fields
+
     // Left-pane master-note grid (2 rows × 4 cols). The wired tiles latch the
     // "Master" notes (bump white / bump color / freeze) into the live preview —
     // the same notes as before, relocated out of the trigger menu; the rest are

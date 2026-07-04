@@ -168,6 +168,9 @@ HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioP
         addAndMakeVisible (*btn);
     }
     blackoutButton.setClickingTogglesState (true);
+    // Reflect a blackout already engaged (editor closed + reopened) — like the
+    // Connect button, the processor owns the state and the button just mirrors it.
+    blackoutButton.setToggleState (proc.blackout, juce::dontSendNotification);
     initNamesButton.setTooltip ("Install the named trigger rack into your Ableton User Library (MIDI Effects)");
     showClipsButton.setTooltip ("Write the demo clips to ~/Music/HitNoteDmx Showcase and open it in Finder");
     showClipsButton.setLookAndFeel (&folderLnf);   // folder icon — label won't fit the narrow pane
@@ -237,6 +240,38 @@ HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioP
         }
         addAndMakeVisible (t);
     }
+
+    // Grid-shape section: two small numeric fields + "Set grid". The fields
+    // mirror the processor's current shape; Set grid validates, applies (the
+    // audio thread re-addresses on the next block) and logs the new footprint.
+    gridSectionLabel.setText ("GRID", juce::dontSendNotification);
+    gridSectionLabel.setJustificationType (juce::Justification::centredLeft);
+    gridSectionLabel.setColour (juce::Label::textColourId, juce::Colour (0xff7a7a7a));
+    gridSectionLabel.setFont (juce::FontOptions (10.5f, juce::Font::bold));
+    addAndMakeVisible (gridSectionLabel);
+
+    gridXLabel.setText ("x", juce::dontSendNotification);
+    gridXLabel.setJustificationType (juce::Justification::centred);
+    gridXLabel.setColour (juce::Label::textColourId, juce::Colour (0xff7a7a7a));
+    gridXLabel.setFont (juce::FontOptions (11.0f));
+    addAndMakeVisible (gridXLabel);
+
+    for (auto* ed : { &gridColsEdit, &gridRowsEdit })
+    {
+        ed->setInputRestrictions (3, "0123456789");
+        ed->setJustification (juce::Justification::centred);
+        ed->setColour (juce::TextEditor::backgroundColourId, juce::Colours::black);
+        ed->setColour (juce::TextEditor::textColourId, juce::Colours::white);
+        ed->setColour (juce::TextEditor::outlineColourId, juce::Colour (0xff3a3a3a));
+        ed->onReturnKey = [this] { applyGridFromFields(); };
+        addAndMakeVisible (*ed);
+    }
+    showGridFields (proc.getRig());
+    gridColsEdit.setTooltip ("Bars (columns), 1-" + juce::String (kMaxBars));
+    gridRowsEdit.setTooltip ("Pixels per bar (rows), 1-" + juce::String (kMaxRows));
+    setGridButton.setTooltip ("Apply the grid shape - re-addresses the bar DMX channels (spots stay at 1/7)");
+    setGridButton.onClick = [this] { applyGridFromFields(); };
+    addAndMakeVisible (setGridButton);
 
     deviceStatusLabel.setJustificationType (juce::Justification::centredLeft);
     deviceStatusLabel.setColour (juce::Label::textColourId, juce::Colours::white);
@@ -337,6 +372,35 @@ HitNoteDmxAudioProcessorEditor::~HitNoteDmxAudioProcessorEditor()
     showClipsButton.setLookAndFeel (nullptr);
     for (auto& t : masterTiles)
         t.setLookAndFeel (nullptr);
+}
+
+void HitNoteDmxAudioProcessorEditor::showGridFields (Rig r)
+{
+    gridColsEdit.setText (juce::String (r.cols), juce::dontSendNotification);
+    gridRowsEdit.setText (juce::String (r.rows), juce::dontSendNotification);
+}
+
+void HitNoteDmxAudioProcessorEditor::applyGridFromFields()
+{
+    const int cols = gridColsEdit.getText().getIntValue();
+    const int rows = gridRowsEdit.getText().getIntValue();
+
+    if (cols < 1 || cols > kMaxBars || rows < 1 || rows > kMaxRows
+        || cols * rows > kMaxGridCells)
+    {
+        appendLog ("[grid] invalid - cols 1-" + juce::String (kMaxBars)
+                   + ", rows 1-" + juce::String (kMaxRows)
+                   + ", cols*rows <= " + juce::String (kMaxGridCells));
+        showGridFields (proc.getRig());   // snap back to the live shape
+        return;
+    }
+
+    const Rig applied = proc.setGridShape (cols, rows);
+    showGridFields (applied);
+    dmxView.setGrid (applied);
+    appendLog ("[grid] " + juce::String (applied.cols) + " x " + juce::String (applied.rows)
+               + " (bars ch " + juce::String (kBarChannelBase) + "-"
+               + juce::String (applied.rigChannels()) + ")");
 }
 
 // Add or remove a master-tile note from the left-pane latch set, then push.
@@ -456,6 +520,20 @@ void HitNoteDmxAudioProcessorEditor::resized()
         // log takes whatever is left in between. (Show clips lives in the
         // far-right pane, above the MIDI-drag tile.)
         auto controls = leftContent.removeFromBottom (46);
+
+        // Grid-shape row just above the utility buttons; the MIDI log above
+        // shrinks by the same amount.
+        {
+            leftContent.removeFromBottom (4);
+            auto gridRow = leftContent.removeFromBottom (22);
+            gridSectionLabel.setBounds (gridRow.removeFromLeft (34));
+            gridColsEdit.setBounds (gridRow.removeFromLeft (32));
+            gridXLabel.setBounds (gridRow.removeFromLeft (14));
+            gridRowsEdit.setBounds (gridRow.removeFromLeft (32));
+            gridRow.removeFromLeft (6);
+            setGridButton.setBounds (gridRow);
+        }
+
         {
             auto row = controls.removeFromTop (24);
             const int cw = row.getWidth() / 3;
@@ -572,7 +650,10 @@ void HitNoteDmxAudioProcessorEditor::timerCallback()
     proc.getHeldPitches (heldScratch);
     triggerMenu.setLiveNotes (heldScratch);
 
-    // Refresh the live DMX preview only when something actually changed.
+    // Track the processor's grid shape (a state load can change it without
+    // touching the fields), then refresh the live DMX preview only when
+    // something actually changed.
+    dmxView.setGrid (proc.getRig());
     dmxView.repaintIfChanged();
 
     // Mirror the strobe shutter on screen (the driver is the source of

@@ -112,75 +112,107 @@ inline constexpr bool isSpotPitch (int p) { return p >= kSpotStart && p < kSpotS
 
 
 // ---- bar selectors (pitch 5..8) -----------------------------------------
-// Set membership per pitch, encoded as a 4-bit mask (bit n = bar n active).
-// One pitch per bar; "all bars" was dropped — it's the default when no bar
-// note is held, and the whole rig is trivially lit by holding all four.
+// Four POSITIONAL selectors — Left / Mid left / Mid right / Right — computed
+// at runtime for any column count. The ENDS are exclusive: Left owns the
+// outermost left bar(s), Right the outermost right, and NO other selector
+// ever touches them. The end width grows with the grid — 1 bar up to 6
+// columns, 2 bars from 7 (e = max(1, (cols+1)/4)). The MIDS split the bars
+// between the ends half-and-half and may overlap EACH OTHER: with an odd
+// number of middle bars both take the centre bar (3 cols → both mids are the
+// centre bar; 5 cols → Mid left = bars 2-3, Mid right = 3-4, 1-based). At 4
+// columns this is exactly one bar per selector (the original per-bar
+// mapping). Degenerate shapes: 2 cols leaves no middle (mids select
+// nothing); 1 col makes Left and Right the same single bar (disjointness is
+// impossible). "All bars" stays the default when no bar note is held.
 
 constexpr int kBarSelStart = 5;
 constexpr int kBarSelEnd   = 8;
-constexpr int kNumBarSelectors = kBarSelEnd - kBarSelStart + 1;
-
-constexpr std::array<std::uint8_t, kNumBarSelectors> kBarSelectorMask {{
-    0b0001,  //  4: bar 1
-    0b0010,  //  5: bar 2
-    0b0100,  //  6: bar 3
-    0b1000,  //  7: bar 4
-}};
 
 inline constexpr bool isBarSelPitch (int p) { return p >= kBarSelStart && p <= kBarSelEnd; }
 
+// Does selector sel (0..3, low pitch = left) cover 0-based bar b of a
+// cols-wide grid?
+inline constexpr bool selectorCoversBar (int sel, int b, int cols)
+{
+    const int e = ((cols + 1) / 4) < 1 ? 1 : (cols + 1) / 4;   // bars per end
+    if (sel == 0) return b < e;                    // Left
+    if (sel == 3) return b >= cols - e;            // Right
+    const int m = cols - 2 * e;                    // middle bars between the ends
+    if (m <= 0) return false;                      // no middle → mids empty
+    const int k = (m + 1) / 2;                     // per-mid share (mids overlap iff m odd)
+    return sel == 1 ? (b >= e && b < e + k)                    // Mid left
+                    : (b >= cols - e - k && b < cols - e);     // Mid right
+}
+
+// Refactor guards, spelling out the contract above.
+static_assert (selectorCoversBar (0, 0, 4) && ! selectorCoversBar (0, 1, 4)
+            && selectorCoversBar (1, 1, 4) && ! selectorCoversBar (1, 2, 4)
+            && selectorCoversBar (2, 2, 4) && ! selectorCoversBar (2, 1, 4)
+            && selectorCoversBar (3, 3, 4) && ! selectorCoversBar (3, 2, 4),
+               "4-col mapping must stay one bar per selector");
+static_assert (selectorCoversBar (1, 1, 3) && selectorCoversBar (2, 1, 3)
+            && ! selectorCoversBar (1, 0, 3) && ! selectorCoversBar (2, 2, 3),
+               "3 cols: mids share the centre bar, ends stay exclusive");
+static_assert (selectorCoversBar (1, 2, 5) && selectorCoversBar (2, 2, 5)     // both mids: centre bar
+            && selectorCoversBar (1, 1, 5) && selectorCoversBar (2, 3, 5)
+            && ! selectorCoversBar (1, 0, 5) && ! selectorCoversBar (2, 4, 5),
+               "5 cols: mids overlap on the centre, never on the ends");
+static_assert (! selectorCoversBar (0, 1, 6) && ! selectorCoversBar (3, 4, 6),
+               "6 cols: ends still one bar each");
+static_assert (selectorCoversBar (0, 1, 7) && selectorCoversBar (3, 5, 7)
+            && ! selectorCoversBar (1, 1, 7) && ! selectorCoversBar (2, 5, 7),
+               "7 cols: ends widen to two bars, still exclusive");
+
 
 // ---- pixel statics (pitch 12..23, the C-1 octave) -----------------------
-// 18-bit mask: bit n (0..17) = pixel (n+1) selected, 1 = bottom.
+// Per-note pixel mask: bit n = pixel (n+1) selected, 1 = bottom. rows ≤
+// kMaxRows = 32 keeps each mask a single uint32.
 //
-// Authored natively in real 18-pixel terms (one mental model for the whole
-// octave): the nine zones are contiguous pixel pairs spanning the bar
-// bottom-to-top (1-2, 3-4, … 17-18), followed by the Even / Odd / Thirds combs.
+// The nine zones are contiguous bottom-up row spans — pixel p belongs to
+// zone ((p-1)*9)/rows, which at rows = 18 reproduces the original 2-pixel
+// pairs (1-2, 3-4, … 17-18) exactly. Then the Even / Odd / Thirds combs,
+// modular on the pixel index so they're row-count-agnostic. The masks for
+// the LIVE row count are built in GridState::rebuild().
 
 constexpr int kPixelStaticStart = 12;
 constexpr int kPixelStaticEnd   = 23;
-constexpr int kNumPixelStatics  = kPixelStaticEnd - kPixelStaticStart + 1;
+static_assert (kPixelStaticEnd - kPixelStaticStart + 1 == GridState::kNumPixelMasks,
+               "pixel-static note range and mask table out of step");
 
 constexpr std::uint32_t bit (int p)  // 1-based pixel → bit
 {
     return static_cast<std::uint32_t> (1u << (p - 1));
 }
 
-constexpr std::uint32_t span (int first, int last)  // contiguous pixels [first..last]
+constexpr std::uint32_t everyN (int first, int step, int rows)  // first..rows step → comb mask
 {
     std::uint32_t m = 0;
-    for (int p = first; p <= last; ++p)
+    for (int p = first; p <= rows; p += step)
         m |= bit (p);
     return m;
 }
 
-constexpr std::uint32_t everyN (int first, int step)  // first..18 step → comb mask
+// Mask for pixel-static slot `idx` (0..11) at a given row count.
+constexpr std::uint32_t pixelMaskFor (int idx, int rows)
 {
-    std::uint32_t m = 0;
-    for (int p = first; p <= kPixelsPerBar; p += step)
-        m |= bit (p);
-    return m;
+    if (idx < 9)          // zones 1-9: contiguous bottom-up spans
+    {
+        std::uint32_t m = 0;
+        for (int p = 1; p <= rows; ++p)
+            if (((p - 1) * 9) / rows == idx)
+                m |= bit (p);
+        return m;
+    }
+    if (idx == 9)  return everyN (2, 2, rows);   // even pixels
+    if (idx == 10) return everyN (1, 2, rows);   // odd pixels
+    return everyN (1, 3, rows);                  // every 3rd
 }
 
-constexpr std::array<std::uint32_t, kNumPixelStatics> kPixelStaticMask {{
-    span (1, 2),      // 12: zone 1  (pixels 1-2)
-    span (3, 4),      // 13: zone 2  (3-4)
-    span (5, 6),      // 14: zone 3  (5-6)
-    span (7, 8),      // 15: zone 4  (7-8)
-    span (9, 10),     // 16: zone 5  (9-10)
-    span (11, 12),    // 17: zone 6  (11-12)
-    span (13, 14),    // 18: zone 7  (13-14)
-    span (15, 16),    // 19: zone 8  (15-16)
-    span (17, 18),    // 20: zone 9  (17-18)
-    everyN (2, 2),    // 21 even pixels   (2,4,…,18)
-    everyN (1, 2),    // 22 odd pixels    (1,3,…,17)
-    everyN (1, 3),    // 23 every 3rd     (1,4,7,10,13,16)
-}};
-
-// Behaviour-preserving refactor guard: each zone must remain its original
-// adjacent-pixel pair (old helper was zone(z) = bit(2z-1) | bit(2z)).
-static_assert (kPixelStaticMask[0] == (bit (1)  | bit (2)),  "zone 1 mask changed");
-static_assert (kPixelStaticMask[8] == (bit (17) | bit (18)), "zone 9 mask changed");
+// Behaviour-preserving refactor guard: at the original 18 rows each zone must
+// remain its adjacent-pixel pair (old table was zone(z) = bit(2z-1) | bit(2z)).
+static_assert (pixelMaskFor (0, 18) == (bit (1)  | bit (2)),  "zone 1 mask changed");
+static_assert (pixelMaskFor (8, 18) == (bit (17) | bit (18)), "zone 9 mask changed");
+static_assert (pixelMaskFor (9, 18) == everyN (2, 2, 18),     "even mask changed");
 
 inline constexpr bool isPixelStaticPitch (int p)
 {
@@ -330,22 +362,25 @@ inline float breatheDensityMask (int barIdx, int pixel, int nPix, int nBars,
 }  // namespace
 
 
-// Stable per-pixel gate value in [0, 1) for the pixel-density control.
-// Deterministic from the pixel's grid position, so the SET of pixels passing
-// a given density threshold is fixed frame-to-frame (no flicker) and shrinks
-// monotonically as density falls.
+// Rebuild the derived per-grid tables for the current shape. Called on the
+// audio thread when the editor's grid request changes: noexcept, no
+// allocation, bounded by kMaxBars × kMaxRows² int ops — cheaper than a single
+// computeDmx block.
 //
-// Built once at static init: a full-avalanche hash (murmur3 finalizer) of
-// each cell's position, rank-normalised WITHIN its bar. The previous
-// single-multiply linear hash dropped pixels in visible diagonal stripes
-// (e.g. per-bar lit counts of 9/7/4/1 at 25%); the avalanche hash scatters
-// randomly, and the per-bar rank guarantees every bar keeps the same
-// fraction lit (25% → exactly 4–5 pixels per bar) while the drop order
-// stays random.
-namespace
+// densityRank: a stable per-pixel gate value in [0, 1) for the pixel-density
+// control. Deterministic from the pixel's grid position, so the SET of pixels
+// passing a given density threshold is fixed frame-to-frame (no flicker) and
+// shrinks monotonically as density falls. A full-avalanche hash (murmur3
+// finalizer) of each cell's position, rank-normalised WITHIN its bar: a
+// single-multiply linear hash dropped pixels in visible diagonal stripes; the
+// avalanche hash scatters randomly, and the per-bar rank guarantees every bar
+// keeps the same fraction lit while the drop order stays random. (The b*64+p
+// hash input is collision-free while kMaxRows < 64.)
+void GridState::rebuild() noexcept
 {
-const std::array<std::array<float, kPixelsPerBar + 1>, kNumBars> kDensityRank = []
-{
+    for (int i = 0; i < kNumPixelMasks; ++i)
+        pixelMask[static_cast<size_t> (i)] = pixelMaskFor (i, rig.rows);
+
     auto avalanche = [] (std::uint32_t h)
     {
         h ^= h >> 16;  h *= 0x7FEB352Du;
@@ -354,29 +389,27 @@ const std::array<std::array<float, kPixelsPerBar + 1>, kNumBars> kDensityRank = 
         return h;
     };
 
-    std::array<std::array<float, kPixelsPerBar + 1>, kNumBars> rank {};
-    for (int b = 0; b < kNumBars; ++b)
+    for (int b = 0; b < rig.cols; ++b)
     {
-        std::array<std::uint32_t, kPixelsPerBar + 1> h {};
-        for (int p = 1; p <= kPixelsPerBar; ++p)
+        std::array<std::uint32_t, kMaxRows + 1> h {};
+        for (int p = 1; p <= rig.rows; ++p)
             h[static_cast<size_t> (p)] = avalanche (static_cast<std::uint32_t> (b * 64 + p));
-        for (int p = 1; p <= kPixelsPerBar; ++p)
+        for (int p = 1; p <= rig.rows; ++p)
         {
             int below = 0;
-            for (int q = 1; q <= kPixelsPerBar; ++q)
+            for (int q = 1; q <= rig.rows; ++q)
                 if (h[static_cast<size_t> (q)] < h[static_cast<size_t> (p)])
                     ++below;
             // +0.5 centres the rank in its bucket: density 1.0 passes every
             // pixel, density 0.0 passes none.
-            rank[static_cast<size_t> (b)][static_cast<size_t> (p)] =
-                (static_cast<float> (below) + 0.5f) / static_cast<float> (kPixelsPerBar);
+            densityRank[static_cast<size_t> (b)][static_cast<size_t> (p)] =
+                (static_cast<float> (below) + 0.5f) / static_cast<float> (rig.rows);
         }
     }
-    return rank;
-}();
 }
 
 void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
+                 const GridState& grid,
                  float ledMasterDim, float spotMasterDim,
                  ColorFadeState* fade, double dtSeconds, float pixelDensity,
                  SelectionMask* sel, BumpState* bump) noexcept
@@ -450,7 +483,8 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
     // For each bar, the highest-velocity selector touching it sets the bar's
     // BRIGHTNESS ceiling (velocity / 127). Bars no longer pick a colour route
     // — that is the pixel-zone layer's job.
-    std::array<int, kNumBars> barBestVel { -1, -1, -1, -1 };
+    std::array<int, kMaxBars> barBestVel;
+    barBestVel.fill (-1);
     bool barLayerHeld = false;
 
     state.forEachHeld ([&] (std::uint8_t pitch, const HeldNote& n)
@@ -458,19 +492,19 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
         if (! isBarSelPitch (pitch))
             return;
         barLayerHeld = true;
-        const auto mask = kBarSelectorMask[pitch - kBarSelStart];
-        for (int b = 0; b < kNumBars; ++b)
+        const int sel = pitch - kBarSelStart;   // 0 = left … 3 = right
+        for (int b = 0; b < grid.rig.cols; ++b)
         {
-            if (! (mask & (1u << b)))
+            if (! selectorCoversBar (sel, b, grid.rig.cols))
                 continue;
-            if (static_cast<int> (n.velocity) > barBestVel[b])
-                barBestVel[b] = n.velocity;
+            if (static_cast<int> (n.velocity) > barBestVel[static_cast<size_t> (b)])
+                barBestVel[static_cast<size_t> (b)] = n.velocity;
         }
     });
 
     // ---- 4. Pixel-static layer ------------------------------------------
-    std::array<Route, kPixelsPerBar + 1> pixelRoute {};   // index 1..18 (0 unused)
-    std::array<int,   kPixelsPerBar + 1> pixelBestVel {};
+    std::array<Route, kMaxRows + 1> pixelRoute {};   // index 1..rows (0 unused)
+    std::array<int,   kMaxRows + 1> pixelBestVel {};
     for (auto& r : pixelRoute)   r = Route::None;
     for (auto& v : pixelBestVel) v = -1;
     bool pixelLayerHeld = false;
@@ -480,9 +514,9 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
         if (! isPixelStaticPitch (pitch))
             return;
         pixelLayerHeld = true;
-        const auto mask = kPixelStaticMask[pitch - kPixelStaticStart];
+        const auto mask = grid.pixelMask[static_cast<size_t> (pitch - kPixelStaticStart)];
         const auto route = routeForVelocity (n.velocity);
-        for (int p = 1; p <= kPixelsPerBar; ++p)
+        for (int p = 1; p <= grid.rig.rows; ++p)
         {
             if (! (mask & (1u << (p - 1))))
                 continue;
@@ -688,11 +722,10 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
     // ---- 7. Compose bars -------------------------------------------------
     // Global-speed-scaled beat clock for the recipes (gMult = 1 when G8 absent).
     const double recipeBeats = tBeats * static_cast<double> (gMult);
-    const int nBars = kNumBars;
+    const int nBars = grid.rig.cols;
+    const int nPix  = grid.rig.rows;
     for (int barIdx = 0; barIdx < nBars; ++barIdx)
     {
-        const auto& bar = kBars[barIdx];
-
         // Spread (F#8): offset each bar's recipe clock so the bars de-sync.
         // `recipeBeatsBar` is absolute beat time (Wild / Multicolor);
         // `recipePhaseBar` is the reversible phase clock (Chases / Breathes).
@@ -707,7 +740,7 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
                                         : 0.0f)
                                   : 1.0f;
 
-        for (int pixel = 1; pixel <= bar.pixels; ++pixel)
+        for (int pixel = 1; pixel <= nPix; ++pixel)
         {
             // Pixel-density thinning: for dark rooms, run fewer LEDs without
             // dimming the ones that stay on. The per-bar rank gates each
@@ -715,7 +748,7 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
             // random order — evenly across the bars — while passing pixels
             // keep full-brightness flashes. density==1 lights everything.
             if (pixelDensity < 1.0f
-                && kDensityRank[static_cast<size_t> (barIdx)][static_cast<size_t> (pixel)] >= pixelDensity)
+                && grid.densityRank[static_cast<size_t> (barIdx)][static_cast<size_t> (pixel)] >= pixelDensity)
                 continue;   // out was cleared at entry, so this pixel stays black
 
             const float pixBrightness = pixelLayerHeld
@@ -725,8 +758,8 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
 
             // Flip (F8): sample recipes at mirrored grid coords to flip
             // direction. The OUTPUT pixel stays real — only the sampling moves.
-            const int rBar = flipHeld ? (nBars - 1 - barIdx)     : barIdx;
-            const int rPix = flipHeld ? (bar.pixels + 1 - pixel) : pixel;
+            const int rBar = flipHeld ? (nBars - 1 - barIdx) : barIdx;
+            const int rPix = flipHeld ? (nPix + 1 - pixel)   : pixel;
 
             float dynBrightness = 1.0f;
             if (dynamicLayerHeld)
@@ -741,17 +774,17 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
                     const double rt = base * static_cast<double> (r.tScale);
                     float v;
                     if (r.mode == kDensity)      // Breathes: carve into smooth islands
-                        v = r.fn (rt, rBar, rPix, bar.pixels, nBars, 0.0f)
-                          * breatheDensityMask (barIdx, pixel, bar.pixels, nBars, r.arg, r.seed);
+                        v = r.fn (rt, rBar, rPix, nPix, nBars, 0.0f)
+                          * breatheDensityMask (barIdx, pixel, nPix, nBars, r.arg, r.seed);
                     else                          // Chases (tail=arg) / Wild (arg unused)
-                        v = r.fn (rt, rBar, rPix, bar.pixels, nBars, r.arg);
+                        v = r.fn (rt, rBar, rPix, nPix, nBars, r.arg);
                     dyn = std::max (dyn, v);
                 }
                 dynBrightness = dyn;
             }
 
             const float brightness = barBrightness * pixBrightness * dynBrightness;
-            const auto channels = bar.channelsFor (pixel);
+            const auto channels = grid.rig.channelsFor (barIdx, pixel);
             if (brightness <= 0.0f)
             {
                 out.set (channels[0], 0.0f);
@@ -773,7 +806,7 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
                 {
                     const auto& r = colorRecipes[i];   // tScale = speed (1 for VU, beat-locked)
                     const auto c = r.fn (recipeBeatsBar * static_cast<double> (r.tScale),
-                                         rBar, rPix, bar.pixels, nBars, r.param);
+                                         rBar, rPix, nPix, nBars, r.param);
                     cr = std::max (cr, c.r);
                     cg = std::max (cg, c.g);
                     cb = std::max (cb, c.b);
@@ -869,15 +902,16 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
             const float beats = 0.25f * std::pow (16.0f, (v - 1.0f) / 126.0f);   // 1/16 .. 1 bar
             xfadeRate = (beats <= 0.0f) ? 1.0f : std::min (1.0f, static_cast<float> (dBeats) / beats);
         }
-        for (int barIdx = 0; barIdx < kNumBars; ++barIdx)
+        for (int barIdx = 0; barIdx < grid.rig.cols; ++barIdx)
         {
-            const auto& bar = kBars[barIdx];
-            for (int pixel = 1; pixel <= bar.pixels; ++pixel)
+            for (int pixel = 1; pixel <= grid.rig.rows; ++pixel)
             {
-                const auto ch = bar.channelsFor (pixel);
+                const auto ch = grid.rig.channelsFor (barIdx, pixel);
                 for (int c = 0; c < 3; ++c)
                 {
-                    const std::size_t idx = (static_cast<std::size_t> (barIdx) * kPixelsPerBar
+                    // kMaxRows stride, so an index means the same cell at any
+                    // grid shape (the buffer is max-grid sized).
+                    const std::size_t idx = (static_cast<std::size_t> (barIdx) * kMaxRows
                                              + static_cast<std::size_t> (pixel - 1)) * 3
                                           + static_cast<std::size_t> (c);
                     const float target = out.get (ch[static_cast<size_t> (c)]);
@@ -1032,12 +1066,11 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
                 return v * (1.0f - cov) + tgt * bri * cov;
             };
 
-            for (int barIdx = 0; barIdx < kNumBars; ++barIdx)
+            for (int barIdx = 0; barIdx < grid.rig.cols; ++barIdx)
             {
-                const auto& bar = kBars[barIdx];
-                for (int pixel = 1; pixel <= bar.pixels; ++pixel)
+                for (int pixel = 1; pixel <= grid.rig.rows; ++pixel)
                 {
-                    const auto ch = bar.channelsFor (pixel);
+                    const auto ch = grid.rig.channelsFor (barIdx, pixel);
                     out.set (ch[0], flash (out.get (ch[0]), colR * ledMasterDim) * (1.0f - kCut));
                     out.set (ch[1], flash (out.get (ch[1]), colG * ledMasterDim) * (1.0f - kCut));
                     out.set (ch[2], flash (out.get (ch[2]), colB * ledMasterDim) * (1.0f - kCut));

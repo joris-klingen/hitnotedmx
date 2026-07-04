@@ -71,14 +71,16 @@ gap rather than renumbering.
 
 ## Bigger / longer-term — rig flexibility
 
-7a. **Parametric grid shape (bar count / pixels)** — today the geometry is fixed
-    at 4 bars × 18 pixels: `Rig.h` hardcodes it, the bar/zone masks are 18-bit,
-    and the visualiser draws exactly that. First step toward a flexible rig is to
-    let the **grid shape vary** — e.g. 6 bars, or 4 bars at a different pixel
-    count — driven from a small set of rig constants that `computeDmx`, the
-    recipes, the masks and the visualiser all read, so a different bar/pixel count
-    is a config change rather than edits in many files. (The mapping likely has to
-    become grid-aware / re-versioned once the mask widths change.)
+7a. ~~**Parametric grid shape (bar count / pixels)**~~ — **DONE** (mapping v10):
+    the grid is a runtime setting (editor grid section, cols ≤ 8 × rows ≤ 32,
+    cols×rows ≤ 166), spots pinned at DMX 1/7, bars from ch 13; bar selectors are
+    positional quarters (Left / Mid left / Mid right / Right). See STATUS.md.
+    Follow-ups: **the physical rig needs a one-time re-patch** (all addresses
+    moved — bars 13/67/121/175, spots 1/7) + an ENTTEC smoke test before the next
+    show; eyeball the 4×18-tuned recipes (Radar, Burst, breathe frequency) on
+    non-default shapes via `recipe-render`; `Showcase.cpp` still hardcodes
+    pitches 5–8 (works — pitches didn't move — but violates the
+    no-hardcoded-notes invariant).
 
 7b. **Full data-driven rig model** — the general case of 7a: a rig description
     (fixture types, counts, DMX start addresses, per-fixture pixel/channel layout,
