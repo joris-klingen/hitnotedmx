@@ -718,7 +718,12 @@ RecipeRGB fire (double t, int barIdx, int pixel, int nPix, int /*nBars*/, float 
     const float n1 = std::sin (kTwoPi * (static_cast<float> (t) * 1.7f + ph * 3.1f));
     const float n2 = std::sin (kTwoPi * (static_cast<float> (t) * 2.9f + ph * 7.7f) + 0.9f);
     const float flicker = 0.5f + 0.5f * (0.65f * n1 + 0.35f * n2);
-    const float heat = (1.0f - y) * (0.55f + 0.45f * flicker);
+    // A tiny ±1-pixel wave on the flame height, phase-offset per bar so it
+    // ripples across the rig — the top edge dances and the very top pixel
+    // lights faintly at the wave's crests, giving the flames some movement.
+    const float lift = (1.0f / static_cast<float> (nPix))
+                     * std::sin (kTwoPi * (1.3f * static_cast<float> (t) + static_cast<float> (barIdx) * 0.35f));
+    const float heat = std::max (0.0f, 1.0f - y + lift) * (0.55f + 0.45f * flicker);
     return { std::min (1.0f, heat * 2.2f),
              std::clamp (heat * 1.4f - 0.25f, 0.0f, 0.85f),
              std::max (0.0f, heat * 0.6f - 0.45f) };
@@ -824,14 +829,21 @@ RecipeRGB embers (double t, int barIdx, int pixel, int nPix, int /*nBars*/, floa
 
 RecipeRGB plasma (double t, int barIdx, int pixel, int nPix, int nBars, float /*param*/) noexcept
 {
-    // Classic shifting plasma field — three interfering sine planes mapped to
-    // the hue wheel.
-    const float x = static_cast<float> (barIdx) / static_cast<float> (std::max (1, nBars - 1));
-    const float y = static_cast<float> (pixel - 1) / static_cast<float> (nPix);
-    const float v = std::sin (x * 3.0f + static_cast<float> (t))
-                  + std::sin (y * 4.0f - static_cast<float> (t) * 0.7f)
-                  + std::sin ((x + y) * 3.0f + static_cast<float> (t) * 0.5f);
-    return hueToRgb (0.5f + v / 6.0f, 0.9f);
+    // A cool "flame" field: three interfering sine planes drive BRIGHTNESS
+    // (bright tongues over dark troughs) while the hue rides a fixed vertical
+    // gradient — blue at the bottom, purple at the top. The time terms run at
+    // fire's flicker rate (1.7 & 2.9 cycles/beat) with a per-cell hashed phase,
+    // so it shimmers at exactly the same speed and per-pixel as `fire`.
+    const float x  = static_cast<float> (barIdx) / static_cast<float> (std::max (1, nBars - 1));
+    const float y  = static_cast<float> (pixel - 1) / static_cast<float> (nPix);
+    const float ph = hash01 (static_cast<std::uint32_t> (barIdx * 64 + pixel));
+    const float v = std::sin (x * 3.0f       + kTwoPi * (static_cast<float> (t) * 1.7f + ph * 3.1f))
+                  + std::sin (y * 4.0f       - kTwoPi * (static_cast<float> (t) * 2.9f + ph * 7.7f))
+                  + std::sin ((x + y) * 3.0f + kTwoPi * (static_cast<float> (t) * 2.2f + ph * 5.0f));
+    const float flame = 0.5f + 0.5f * (v / 3.0f);                          // 0..1
+    const float bri   = std::clamp (0.15f + 0.9f * flame * flame, 0.0f, 1.0f);  // dark troughs, bright tongues
+    const float hue   = 0.66f + 0.15f * y + 0.03f * flame;                // blue → purple, wobbling
+    return hueToRgb (hue, bri);
 }
 
 RecipeRGB ocean (double t, int barIdx, int pixel, int nPix, int /*nBars*/, float /*param*/) noexcept
@@ -977,6 +989,12 @@ RecipeRGB galaxy (double t, int barIdx, int pixel, int nPix, int nBars, float /*
     const float wash = 0.5f + 0.5f * std::sin (kTwoPi * (0.05f * static_cast<float> (t) + gx * 0.6f + y * 0.4f));
     RecipeRGB c = hueToRgb (0.72f + 0.05f * y + 0.02f * wash,        // violet, drifting slightly
                             0.14f + 0.14f * y + 0.06f * wash);       // subtle moving gradient
+
+    // A faint per-pixel shimmer over the violet wash so the purple parts glitter
+    // gently (±16%) — separate from, and beneath, the white stars.
+    const float sph  = hash01 (static_cast<std::uint32_t> (barIdx * 64 + pixel));
+    const float shim = 0.84f + 0.16f * std::sin (kTwoPi * (0.4f * static_cast<float> (t) + sph * 5.0f));
+    c = { c.r * shim, c.g * shim, c.b * shim };
 
     // Five star "slots". Each lives one cycle (~1 bar at velocity 100, since
     // velocity scales the clock), fading 0→1→0, then re-rolls to a new cell.

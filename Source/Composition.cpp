@@ -92,7 +92,7 @@ constexpr int kFreezeNote      = 123;  // D#8 — hold the current frame while h
 constexpr int kReverseNote     = 124;  // E8  — real reverse: chases/breathes retrace (recipe phase runs backward)
 constexpr int kFlipNote        = 125;  // F8  — flip recipe direction (mirrored sampling coords)
 constexpr int kSpreadNote      = 126;  // F#8 — per-bar phase offset; velocity = amount
-constexpr int kSpeedNote       = 127;  // G8  — velocity = global recipe-speed multiplier (vel 64 = 1x)
+constexpr int kSpeedNote       = 127;  // G8  — velocity = global recipe-speed multiplier (vel 1 = 0.25x .. 71+ = 8x)
 
 
 // ---- spot triggers (pitch 1..4) -----------------------------------------
@@ -655,11 +655,11 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
 
     // Global speed (G8 / kSpeedNote): its velocity scales EVERY recipe's rate
     // as a DISCRETE power-of-two ladder — each 14-velocity step doubles the
-    // rate, from a half-speed bottom step to an 8x cap: vel 1-14 = 0.5x,
-    // 15-28 = 1x, 29-42 = 2x, 43-56 = 4x, 57+ = 8x. Absent = 1x (default
-    // speeds). Anchored on the breathes' natural 1-bar cycle: vel 1 = 2 bars
-    // (halo up one bar, down the next), 15 = the default 1 bar, 29 = 2 beats,
-    // 43 = 1 beat. Powers of two keep every bank's cycles on the bar grid
+    // rate, from a quarter-speed bottom step to an 8x cap: vel 1-14 = 0.25x,
+    // 15-28 = 0.5x, 29-42 = 1x, 43-56 = 2x, 57-70 = 4x, 71+ = 8x. Absent = 1x
+    // (default speeds). Anchored on the breathes' natural 1-bar cycle: vel 1 =
+    // 4 bars (the slowest, deepest breathe), 15 = 2 bars, 29 = the default 1
+    // bar, 43 = 2 beats, 57 = 1 beat. Powers of two keep every bank's cycles on the bar grid
     // (the phase clocks re-lock to the song position at transport start —
     // see BumpState::resyncClocks); the 8x cap is where the natively-faster
     // chases (1 cycle/beat) stop reading as motion and start aliasing. While
@@ -673,8 +673,8 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
         if (! speedHeld)
             return 1.0f;
         const int vel   = state.get (static_cast<std::uint8_t> (kSpeedNote)).velocity;
-        const int level = std::clamp ((vel - 1) / 14, 0, 4);
-        return 0.5f * static_cast<float> (1 << level);   // 0.5x / 1x / 2x / 4x / 8x
+        const int level = std::clamp ((vel - 1) / 14, 0, 5);
+        return 0.25f * static_cast<float> (1 << level);  // 0.25x / 0.5x / 1x / 2x / 4x / 8x
     }();
 
     // Flip (F8): flip recipe DIRECTION by sampling each recipe at mirrored grid
