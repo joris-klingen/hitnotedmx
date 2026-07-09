@@ -722,7 +722,7 @@ RecipeRGB fire (double t, int barIdx, int pixel, int nPix, int /*nBars*/, float 
     // ripples across the rig — the top edge dances and the very top pixel
     // lights faintly at the wave's crests, giving the flames some movement.
     const float lift = (1.0f / static_cast<float> (nPix))
-                     * std::sin (kTwoPi * (1.3f * static_cast<float> (t) + static_cast<float> (barIdx) * 0.35f));
+                     * std::sin (kTwoPi * (0.325f * static_cast<float> (t) + static_cast<float> (barIdx) * 0.35f));
     const float heat = std::max (0.0f, 1.0f - y + lift) * (0.55f + 0.45f * flicker);
     return { std::min (1.0f, heat * 2.2f),
              std::clamp (heat * 1.4f - 0.25f, 0.0f, 0.85f),

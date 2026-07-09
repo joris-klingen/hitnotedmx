@@ -244,12 +244,6 @@ HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioP
     // Grid-shape section: two small numeric fields + "Set grid". The fields
     // mirror the processor's current shape; Set grid validates, applies (the
     // audio thread re-addresses on the next block) and logs the new footprint.
-    gridSectionLabel.setText ("GRID", juce::dontSendNotification);
-    gridSectionLabel.setJustificationType (juce::Justification::centredLeft);
-    gridSectionLabel.setColour (juce::Label::textColourId, juce::Colour (0xff7a7a7a));
-    gridSectionLabel.setFont (juce::FontOptions (10.5f, juce::Font::bold));
-    addAndMakeVisible (gridSectionLabel);
-
     gridXLabel.setText ("x", juce::dontSendNotification);
     gridXLabel.setJustificationType (juce::Justification::centred);
     gridXLabel.setColour (juce::Label::textColourId, juce::Colour (0xff7a7a7a));
@@ -273,11 +267,18 @@ HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioP
     setGridButton.onClick = [this] { applyGridFromFields(); };
     addAndMakeVisible (setGridButton);
 
-    deviceStatusLabel.setJustificationType (juce::Justification::centredLeft);
-    deviceStatusLabel.setColour (juce::Label::textColourId, juce::Colours::white);
-    deviceStatusLabel.setFont (juce::FontOptions (11.0f));
-    deviceStatusLabel.setMinimumHorizontalScale (0.7f);  // keep it to one line
-    addAndMakeVisible (deviceStatusLabel);
+    // Per-bar LED-dim row: one 1..10 cell per bar (no label — it speaks for
+    // itself sitting under the grid fields). Cells latch their relative dim into
+    // the processor (1..10 → 0.1..1.0). refreshBarDimBoxes shows only as many as
+    // the grid has columns and mirrors the stored values.
+    for (int i = 0; i < kMaxBars; ++i)
+    {
+        auto& box = barDimBoxes[static_cast<size_t> (i)];
+        box.setTooltip ("Bar " + juce::String (i + 1)
+                        + " LED brightness 1-10, relative to LED DIM. Drag or double-click to type.");
+        box.onChange = [this, i] (int v) { proc.setBarDim (i, static_cast<float> (v) / 10.0f); };
+        addChildComponent (box);   // visibility set by refreshBarDimBoxes()
+    }
 
     addAndMakeVisible (dmxView);
 
@@ -350,7 +351,8 @@ HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioP
     midiLogView.setColour (juce::TextEditor::textColourId,       juce::Colours::lightgreen);
     addAndMakeVisible (midiLogView);
 
-    refreshDeviceStatus();
+    refreshBarDimBoxes();    // show the right number of cells + their stored values
+    logDeviceStatus();       // log whether an ENTTEC is present at open time
     updateConnectButton();   // reflect a session already running (reopened editor)
     lastLinkUp = proc.getDmx().isConnected();
     startTimerHz (15);  // visual confirmation only; combined with the
@@ -395,12 +397,28 @@ void HitNoteDmxAudioProcessorEditor::applyGridFromFields()
         return;
     }
 
-    const Rig applied = proc.setGridShape (cols, rows);
+    const Rig applied = proc.setGridShape (cols, rows);   // also resets per-bar dims to full
     showGridFields (applied);
     dmxView.setGrid (applied);
+    refreshBarDimBoxes();   // new column count + reset (all 10) values
     appendLog ("[grid] " + juce::String (applied.cols) + " x " + juce::String (applied.rows)
                + " (bars ch " + juce::String (kBarChannelBase) + "-"
                + juce::String (applied.rigChannels()) + ")");
+}
+
+// Show one cell per grid column (hide the rest), mirror the processor's stored
+// dims, and re-run the layout so the row packs to the new column count.
+void HitNoteDmxAudioProcessorEditor::refreshBarDimBoxes()
+{
+    const int cols = proc.getRig().cols;
+    for (int i = 0; i < kMaxBars; ++i)
+    {
+        auto& box = barDimBoxes[static_cast<size_t> (i)];
+        box.setVisible (i < cols);
+        box.setValue (juce::roundToInt (proc.getBarDim (i) * 10.0f));   // 0..1 → 1..10
+    }
+    shownBarCols = cols;
+    resized();
 }
 
 // Add or remove a master-tile note from the left-pane latch set, then push.
@@ -515,34 +533,42 @@ void HitNoteDmxAudioProcessorEditor::resized()
         }
         leftContent.removeFromTop (6);
 
-        // Utility controls pinned to the bottom: one row of three buttons
-        // (Connect / Blackout / Init names) + the ENTTEC status line. The MIDI
-        // log takes whatever is left in between. (Show clips lives in the
-        // far-right pane, above the MIDI-drag tile.)
-        auto controls = leftContent.removeFromBottom (46);
-
-        // Grid-shape row just above the utility buttons; the MIDI log above
-        // shrinks by the same amount.
+        // Utility buttons pinned to the VERY bottom (the ENTTEC status line moved
+        // to the log, freeing the space below them): one row of three buttons
+        // (Connect / Blackout / Init names). (Show clips lives in the far-right
+        // pane, above the MIDI-drag tile.)
         {
-            leftContent.removeFromBottom (4);
+            auto row = leftContent.removeFromBottom (24);
+            const int cw = row.getWidth() / 3;
+            connectUsbButton.setBounds (row.removeFromLeft (cw).reduced (1, 0));
+            blackoutButton.setBounds   (row.removeFromLeft (cw).reduced (1, 0));
+            initNamesButton.setBounds  (row.reduced (1, 0));
+        }
+
+        // Per-bar LED-dim row just below the grid section: "BAR" + one cell per
+        // column (only the grid's columns are visible).
+        {
+            leftContent.removeFromBottom (5);
+            auto dimRow = leftContent.removeFromBottom (22);
+            const int cols   = juce::jmax (1, proc.getRig().cols);
+            const int cellW  = dimRow.getWidth() / cols;
+            for (int i = 0; i < cols; ++i)
+            {
+                auto cell = (i == cols - 1) ? dimRow : dimRow.removeFromLeft (cellW);
+                barDimBoxes[static_cast<size_t> (i)].setBounds (cell.reduced (1, 0));
+            }
+        }
+
+        // Grid-shape row above the bar-dim row; the MIDI log above shrinks.
+        {
+            leftContent.removeFromBottom (5);
             auto gridRow = leftContent.removeFromBottom (22);
-            gridSectionLabel.setBounds (gridRow.removeFromLeft (34));
             gridColsEdit.setBounds (gridRow.removeFromLeft (32));
             gridXLabel.setBounds (gridRow.removeFromLeft (14));
             gridRowsEdit.setBounds (gridRow.removeFromLeft (32));
             gridRow.removeFromLeft (6);
             setGridButton.setBounds (gridRow);
         }
-
-        {
-            auto row = controls.removeFromTop (24);
-            const int cw = row.getWidth() / 3;
-            connectUsbButton.setBounds (row.removeFromLeft (cw).reduced (1, 0));
-            blackoutButton.setBounds   (row.removeFromLeft (cw).reduced (1, 0));
-            initNamesButton.setBounds  (row.reduced (1, 0));
-        }
-        controls.removeFromTop (4);
-        deviceStatusLabel.setBounds (controls);  // remaining (~18px, one line)
 
         leftContent.removeFromBottom (6);
         midiLogView.setBounds (leftContent);
@@ -585,7 +611,7 @@ void HitNoteDmxAudioProcessorEditor::buttonClicked (juce::Button* b)
             const bool ok = dmx.connect();
             appendLog (ok ? "[usb] connected" : "[usb] connect failed");
         }
-        refreshDeviceStatus();
+        logDeviceStatus();   // detail (firmware, or the "No ENTTEC found" reason)
         updateConnectButton();
         lastLinkUp = dmx.isConnected();   // don't double-log via the timer
     }
@@ -642,9 +668,14 @@ void HitNoteDmxAudioProcessorEditor::timerCallback()
     if (linkUp != lastLinkUp)
     {
         appendLog (linkUp ? "[usb] link restored" : "[usb] link lost - reconnecting");
-        refreshDeviceStatus();
+        updateConnectButton();   // keep the green tint in step with the live link
         lastLinkUp = linkUp;
     }
+
+    // A state load can change the grid without touching the fields; keep the
+    // per-bar dim row's cell count + values in step.
+    if (proc.getRig().cols != shownBarCols)
+        refreshBarDimBoxes();
 
     // Light up trigger tiles whose notes are currently sounding (MIDI + preview).
     proc.getHeldPitches (heldScratch);
@@ -662,10 +693,11 @@ void HitNoteDmxAudioProcessorEditor::timerCallback()
     dmxView.setStrobe (proc.getDmx().getStrobeHz());
 }
 
-void HitNoteDmxAudioProcessorEditor::refreshDeviceStatus()
+void HitNoteDmxAudioProcessorEditor::logDeviceStatus()
 {
-    deviceStatusLabel.setText (proc.getDmx().getStatusText(),
-                               juce::dontSendNotification);
+    // The ENTTEC status line lives in the log now (no dedicated label). Flatten
+    // its newlines so a multi-line "Connected. Firmware…" stays one log line.
+    appendLog ("[usb] " + proc.getDmx().getStatusText().replaceCharacters ("\n", " "));
 }
 
 void HitNoteDmxAudioProcessorEditor::updateConnectButton()
@@ -673,8 +705,16 @@ void HitNoteDmxAudioProcessorEditor::updateConnectButton()
     // "Disconnect" whenever this instance owns the port (incl. across an
     // auto-reconnect gap); "Connect USB" otherwise. Driven by the session
     // flag, not the momentary link, so it survives the editor being reopened.
-    connectUsbButton.setButtonText (proc.getDmx().isRunning() ? "Disconnect"
-                                                              : "Connect USB");
+    auto& dmx = proc.getDmx();
+    connectUsbButton.setButtonText (dmx.isRunning() ? "Disconnect" : "Connect USB");
+
+    // Green whenever the link is actually up; neutral otherwise (incl. during a
+    // reconnect gap, so a dropped link is visible even while we own the port).
+    const bool up = dmx.isConnected();
+    connectUsbButton.setColour (juce::TextButton::buttonColourId,
+                                up ? juce::Colour (0xff2f9e44) : juce::Colour (0xff333333));
+    connectUsbButton.setColour (juce::TextButton::textColourOffId,
+                                up ? juce::Colours::white : juce::Colour (0xffbfbfbf));
 }
 
 void HitNoteDmxAudioProcessorEditor::appendLog (const juce::String& line)

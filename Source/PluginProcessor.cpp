@@ -62,6 +62,9 @@ HitNoteDmxAudioProcessor::HitNoteDmxAudioProcessor()
     for (auto& p : previewPitch)
         p.store (-1);
     appliedPreview.fill (-1);
+
+    for (auto& d : barDim)
+        d.store (1.0f);   // every bar at full until the editor / state says otherwise
 }
 
 HitNoteDmxAudioProcessor::~HitNoteDmxAudioProcessor()
@@ -216,7 +219,12 @@ void HitNoteDmxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     const float spotDim = spotMasterDimParam != nullptr ? spotMasterDimParam->load() : 1.0f;
     const float density = pixelDensityParam  != nullptr ? pixelDensityParam->load()  : 1.0f;
     const double dtSeconds = static_cast<double> (buffer.getNumSamples()) / sampleRate_;
-    computeDmx (midiState, blockStartBeat, dmxValues, grid, ledDim, spotDim, &colorFade, dtSeconds, density, &selection, &bumpState);
+    // Snapshot the per-bar dims into a plain buffer (no atomics on the audio
+    // thread past this point); computeDmx rescales each bar on top of ledDim.
+    float barDimBuf[kMaxBars];
+    for (int i = 0; i < kMaxBars; ++i)
+        barDimBuf[i] = barDim[static_cast<size_t> (i)].load (std::memory_order_relaxed);
+    computeDmx (midiState, blockStartBeat, dmxValues, grid, ledDim, spotDim, &colorFade, dtSeconds, density, &selection, &bumpState, barDimBuf);
 
     // Strobe is a global shutter applied in the DMX driver's send loop (so
     // it stays locked to the output clock and free of audio-block jitter).
@@ -289,6 +297,19 @@ void HitNoteDmxAudioProcessor::setStateInformation (const void* data, int sizeIn
                 static_cast<int> (parameters.state.getProperty (kGridRowsProp, kDefaultRows)));
             if (cols * rows <= kMaxGridCells)
                 gridRequest.store (packGrid (cols, rows));
+
+            // Per-bar dims ride the state as a space-separated string; old
+            // sessions lack it → every bar stays at full.
+            for (auto& d : barDim)
+                d.store (1.0f);
+            const juce::String dims = parameters.state.getProperty (kBarDimsProp, "").toString();
+            if (dims.isNotEmpty())
+            {
+                auto toks = juce::StringArray::fromTokens (dims, " ", "");
+                for (int i = 0; i < juce::jmin (toks.size(), kMaxBars); ++i)
+                    barDim[static_cast<size_t> (i)].store (
+                        juce::jlimit (0.0f, 1.0f, toks[i].getFloatValue()));
+            }
         }
 }
 
@@ -303,7 +324,40 @@ Rig HitNoteDmxAudioProcessor::setGridShape (int cols, int rows)
     gridRequest.store (packGrid (cols, rows));
     parameters.state.setProperty (kGridColsProp, cols, nullptr);
     parameters.state.setProperty (kGridRowsProp, rows, nullptr);
+    resetBarDims();   // a fresh grid starts every bar at full brightness
     return { cols, rows };
+}
+
+void HitNoteDmxAudioProcessor::setBarDim (int barIdx, float v) noexcept
+{
+    if (barIdx < 0 || barIdx >= kMaxBars)
+        return;
+    barDim[static_cast<size_t> (barIdx)].store (juce::jlimit (0.0f, 1.0f, v));
+    storeBarDimsProp();
+}
+
+float HitNoteDmxAudioProcessor::getBarDim (int barIdx) const noexcept
+{
+    if (barIdx < 0 || barIdx >= kMaxBars)
+        return 1.0f;
+    return barDim[static_cast<size_t> (barIdx)].load (std::memory_order_relaxed);
+}
+
+void HitNoteDmxAudioProcessor::resetBarDims() noexcept
+{
+    for (auto& d : barDim)
+        d.store (1.0f);
+    storeBarDimsProp();
+}
+
+// Serialise the current dims to a single space-separated property so they ride
+// the session state (like the grid shape). Message thread only.
+void HitNoteDmxAudioProcessor::storeBarDimsProp()
+{
+    juce::String s;
+    for (int i = 0; i < kMaxBars; ++i)
+        s << (i == 0 ? "" : " ") << juce::String (getBarDim (i), 3);
+    parameters.state.setProperty (kBarDimsProp, s, nullptr);
 }
 
 void HitNoteDmxAudioProcessor::setPreviewPitches (const std::vector<int>& pitches)

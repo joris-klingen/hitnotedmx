@@ -125,6 +125,70 @@ private:
     bool dragging { false };   // guards re-entry while a drag loop is running
 };
 
+// A tiny per-bar LED-brightness cell (1..10, 10 = full). Drag vertically like a
+// fader to change; double-click to type a number. Shows the integer over a fill
+// that tracks the value. The editor maps 1..10 → a 0.1..1.0 relative dim.
+class BarDimBox : public juce::Label
+{
+public:
+    BarDimBox()
+    {
+        setEditable (false, true, false);   // double-click opens a type-in editor
+        setJustificationType (juce::Justification::centred);
+        // Opaque editor so the fader fill / number don't show through behind it.
+        setColour (juce::Label::backgroundWhenEditingColourId, juce::Colour (0xff000000));
+        setColour (juce::Label::textWhenEditingColourId,       juce::Colours::white);
+        setColour (juce::Label::outlineWhenEditingColourId,    juce::Colour (0xff39c6c0));
+        onTextChange = [this] { setValue (getText().getIntValue(), true); };
+        setValue (10);
+    }
+
+    std::function<void (int)> onChange;   // fired with 1..10 on a user edit
+
+    void setValue (int v, bool notify = false)
+    {
+        v = juce::jlimit (1, 10, v);
+        const bool changed = v != value;
+        value = v;
+        setText (juce::String (value), juce::dontSendNotification);
+        repaint();
+        if (changed && notify && onChange) onChange (value);
+    }
+    int getValue() const noexcept { return value; }
+
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        juce::Label::mouseDown (e);
+        dragStart = value;
+    }
+    void mouseDrag (const juce::MouseEvent& e) override
+    {
+        setValue (dragStart - e.getDistanceFromDragStartY() / 7, true);   // up = brighter
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        if (isBeingEdited())   // the type-in editor draws itself; stay out of its way
+            return;
+        auto r = getLocalBounds().toFloat().reduced (1.0f);
+        g.setColour (juce::Colour (0xff1e1e1e));
+        g.fillRoundedRectangle (r, 3.0f);
+        const float frac = static_cast<float> (value) / 10.0f;
+        auto fill = r.withTrimmedTop (r.getHeight() * (1.0f - frac));
+        g.setColour (juce::Colour (0xff39c6c0).withAlpha (0.28f + 0.34f * frac));
+        g.fillRoundedRectangle (fill, 3.0f);
+        g.setColour (juce::Colour (0xff3a3a3a));
+        g.drawRoundedRectangle (r, 3.0f, 1.0f);
+        g.setColour (juce::Colours::white);
+        g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+        g.drawText (juce::String (value), getLocalBounds(), juce::Justification::centred);
+    }
+
+private:
+    int value { 10 };
+    int dragStart { 10 };
+};
+
 // Stripped-down editor for the skeleton commit. Shows:
 //   - the ENTTEC USB Pro connect / disconnect / blackout buttons
 //   - a scrolling text log of the most recent MIDI activity (drained
@@ -149,8 +213,8 @@ private:
     void buttonClicked (juce::Button*) override;
     void timerCallback() override;
 
-    void refreshDeviceStatus();
-    void updateConnectButton();                 // label tracks the session state
+    void logDeviceStatus();                     // append the ENTTEC status to the log
+    void updateConnectButton();                 // label + green tint track the connection
     void appendLog (const juce::String& line);  // queue; doesn't touch the editor
     void flushLogIfDirty();                     // one setText per tick
 
@@ -160,17 +224,22 @@ private:
     juce::TextButton blackoutButton    { "Blackout" };
     juce::TextButton initNamesButton   { "Init. names" };   // install the named rack
     juce::TextButton showClipsButton   { "Show clips" };    // open the demo-clips folder
-    juce::Label      deviceStatusLabel;
 
     // Grid-shape section (cols × rows + "Set grid"), one small row above the
     // utility buttons. Applies via proc.setGridShape — a structural setting,
     // deliberately not a host parameter.
-    juce::Label      gridSectionLabel;
     juce::TextEditor gridColsEdit, gridRowsEdit;
     juce::Label      gridXLabel;
     juce::TextButton setGridButton { "Set grid" };
     void applyGridFromFields();
     void showGridFields (Rig r);   // mirror a shape into the two fields
+
+    // Per-bar LED-dim row, one short row below the grid section: one 1..10 cell
+    // per bar (4..8 shown, tracking the grid's column count). Relative dims,
+    // rescaled by the master LED dim; "Set grid" resets them all to 10.
+    std::array<BarDimBox, kMaxBars>  barDimBoxes;
+    int                              shownBarCols { 0 };   // last laid-out bar count
+    void refreshBarDimBoxes();   // pull values from proc, then relayout
 
     // Left-pane master-note grid (2 rows × 4 cols). The wired tiles latch the
     // "Master" notes (bump white / bump color / freeze) into the live preview —

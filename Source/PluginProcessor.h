@@ -102,12 +102,22 @@ public:
     // persisted with the session as properties on the parameter tree.
     static constexpr const char* kGridColsProp = "gridCols";
     static constexpr const char* kGridRowsProp = "gridRows";
+    // Per-bar dims persist as one space-separated string of kMaxBars values.
+    static constexpr const char* kBarDimsProp  = "barDims";
 
     // Request a new grid shape (message thread). Clamps to the per-axis caps
     // and the universe budget (cols × rows ≤ kMaxGridCells); the audio thread
     // applies it at the top of the next processBlock. Returns the shape
     // actually stored (after clamping).
     Rig setGridShape (int cols, int rows);
+
+    // Per-bar relative LED brightness (0..1, default 1 = full), rescaled on top
+    // of the master LED dim in computeDmx. NOT automatable; persisted with the
+    // session as properties. Message thread writes; audio thread snapshots each
+    // block. Indices past the current bar count are simply ignored downstream.
+    void setBarDim (int barIdx, float v) noexcept;
+    float getBarDim (int barIdx) const noexcept;
+    void resetBarDims() noexcept;   // all bars → 1.0 (called on grid reshape)
 
     // The currently requested grid shape, for the editor / visualiser.
     Rig getRig() const noexcept
@@ -158,6 +168,12 @@ private:
     std::atomic<std::uint32_t> gridRequest { packGrid (kDefaultBars, kDefaultRows) };
     std::uint32_t              appliedGrid { 0 };
     GridState                  grid;   // audio-thread owned
+
+    // Per-bar relative LED dims (0..1). Written on the message thread, snapshot
+    // into a plain buffer each processBlock and passed to computeDmx.
+    std::array<std::atomic<float>, kMaxBars> barDim;
+    // Persist the current dims into the state tree (space-separated string).
+    void storeBarDimsProp();
 
     // Preview injection. previewPitch[] is written by the GUI thread and
     // read on the audio thread; -1 = empty slot. appliedPreview is

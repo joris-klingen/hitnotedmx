@@ -243,6 +243,9 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& outValues,
                  float ledMasterDim = 1.0f, float spotMasterDim = 1.0f,
                  ColorFadeState* fade = nullptr, double dtSeconds = 0.0,
                  float pixelDensity = 1.0f, SelectionMask* selection = nullptr,
-                 BumpState* bump = nullptr) noexcept;
+                 BumpState* bump = nullptr,
+                 // Per-bar relative LED brightness (0..1), rescaled on top of
+                 // ledMasterDim. nullptr = all bars at full. Length = kMaxBars.
+                 const float* barDim = nullptr) noexcept;
 
 }  // namespace hitnotedmx

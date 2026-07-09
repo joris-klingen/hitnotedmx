@@ -350,7 +350,8 @@ void advanceBumpFlash (const MidiState& state, BumpState& bump, double dBeats) n
 // by section 9 and the frozen path (Bump deliberately ignores Freeze).
 void applyBumpOverlay (DmxValues& out, const GridState& grid, const BumpState& bump,
                        const ColorPick& primaryC, float ledMasterDim,
-                       float spotMasterDim, SelectionMask* sel) noexcept
+                       float spotMasterDim, SelectionMask* sel,
+                       const float* barDim = nullptr) noexcept
 {
     const float cov  = bump.flash.level;   // flash coverage 0..1
     const float bri  = bump.flash.amount;  // captured velocity (brightness)
@@ -377,12 +378,15 @@ void applyBumpOverlay (DmxValues& out, const GridState& grid, const BumpState& b
 
     for (int barIdx = 0; barIdx < grid.rig.cols; ++barIdx)
     {
+        // Per-bar relative dim scales the flash TARGET too, so a dimmed bar
+        // doesn't blast to full brightness on a bump.
+        const float bMul = barDim != nullptr ? barDim[barIdx] : 1.0f;
         for (int pixel = 1; pixel <= grid.rig.rows; ++pixel)
         {
             const auto ch = grid.rig.channelsFor (barIdx, pixel);
-            out.set (ch[0], flash (out.get (ch[0]), colR * ledMasterDim) * (1.0f - kCut));
-            out.set (ch[1], flash (out.get (ch[1]), colG * ledMasterDim) * (1.0f - kCut));
-            out.set (ch[2], flash (out.get (ch[2]), colB * ledMasterDim) * (1.0f - kCut));
+            out.set (ch[0], flash (out.get (ch[0]), colR * ledMasterDim * bMul) * (1.0f - kCut));
+            out.set (ch[1], flash (out.get (ch[1]), colG * ledMasterDim * bMul) * (1.0f - kCut));
+            out.set (ch[2], flash (out.get (ch[2]), colB * ledMasterDim * bMul) * (1.0f - kCut));
         }
     }
     for (int s = 0; s < kNumSpots; ++s)
@@ -490,7 +494,7 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
                  const GridState& grid,
                  float ledMasterDim, float spotMasterDim,
                  ColorFadeState* fade, double dtSeconds, float pixelDensity,
-                 SelectionMask* sel, BumpState* bump) noexcept
+                 SelectionMask* sel, BumpState* bump, const float* barDim) noexcept
 {
     // ---- 1. Blackout / freeze short-circuits ----------------------------
     // Blackout (pitch 0) is a hard kill and dominates everything, freeze
@@ -539,7 +543,7 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
             advanceBumpFlash (state, *bump, rawDelta);
             out = bump->sceneSnapshot;
             const auto primaryC = pickColor (state, kPrimaryPaletteStart, kSecondaryPaletteStart);
-            applyBumpOverlay (out, grid, *bump, primaryC, ledMasterDim, spotMasterDim, sel);
+            applyBumpOverlay (out, grid, *bump, primaryC, ledMasterDim, spotMasterDim, sel, barDim);
         }
         return;
     }
@@ -830,6 +834,10 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
     const int nPix  = grid.rig.rows;
     for (int barIdx = 0; barIdx < nBars; ++barIdx)
     {
+        // Per-bar relative LED dim, applied on top of ledMasterDim on every
+        // pixel of this bar (and its bump flash below).
+        const float barMul = barDim != nullptr ? barDim[barIdx] : 1.0f;
+
         // Spread (F#8): offset each bar's recipe clock so the bars de-sync.
         // `recipeBeatsBar` is absolute beat time (Wild / Multicolor);
         // `recipePhaseBar` is the reversible phase clock (Chases / Breathes).
@@ -935,9 +943,9 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
             if (sel != nullptr && selectorOnly && cr <= 0.0f && cg <= 0.0f && cb <= 0.0f)
                 sel->cell[static_cast<size_t> (barIdx)][static_cast<size_t> (pixel)] = true;
 
-            out.set (channels[0], cr * brightness * ledMasterDim);
-            out.set (channels[1], cg * brightness * ledMasterDim);
-            out.set (channels[2], cb * brightness * ledMasterDim);
+            out.set (channels[0], cr * brightness * ledMasterDim * barMul);
+            out.set (channels[1], cg * brightness * ledMasterDim * barMul);
+            out.set (channels[2], cb * brightness * ledMasterDim * barMul);
         }
     }
 
@@ -1119,7 +1127,7 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
         // the blackout note (C-2) takes the spots dark, so a fade-to-black can
         // drop the rig while the singer spots stay lit. Spots still take the
         // bump flash.
-        applyBumpOverlay (out, grid, *bump, primaryC, ledMasterDim, spotMasterDim, sel);
+        applyBumpOverlay (out, grid, *bump, primaryC, ledMasterDim, spotMasterDim, sel, barDim);
     }
 }
 
