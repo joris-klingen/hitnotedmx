@@ -8,6 +8,7 @@ verified changes over restructuring.
 - Architecture, per-layer state, and the full development log: [STATUS.md](STATUS.md)
 - Open backlog (show-prep priorities first): [TODO.md](TODO.md)
 - Note-mapping freeze/versioning procedure: [mappings/README.md](mappings/README.md)
+- Plain-language guide to the speed controls (defaults, velocity, Master Speed): [SPEED.md](SPEED.md)
 
 ## Finding things
 

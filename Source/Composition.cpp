@@ -33,15 +33,15 @@ namespace hitnotedmx
 //                            picks the palette ROUTE instead.
 //   Breathes (brightness)    GLOW-MASK depth — 127 = the breathe untouched,
 //                            softer notes dim it into a drifting patchy wash
-//                            (breatheGlowMask); half the chase rate, so the
-//                            periodic breathes cycle once per bar
+//                            (breatheGlowMask); one-eighth the chase rate, so
+//                            the periodic breathes cycle once per 4 bars
 //   Colour dynamics          SPEED of the recipe's animation — hard = faster;
 //                            EXCEPT VU meter: beat-locked, velocity → gain
 //   Speed (G8)               GLOBAL recipe-speed multiplier for all four banks
 //                            — a DISCRETE power-of-two ladder, doubling every
-//                            14 velocity: vel 1 = 0.5x (a 2-bar breathe),
-//                            15 = 1x, then 2x / 4x / 8x cap at 57+; see
-//                            section 5
+//                            14 velocity: vel 1 = 0.25x (a 16-bar breathe),
+//                            29 = 1x (the default 4-bar breathe), then
+//                            2x / 4x / 8x cap at 71+; see section 5
 //   Palette colour notes     Colour-FADE duration only — hard = instant snap,
 //                            soft = slow rise to FULL colour (advanceFade).
 //                            Brightness comes from the bar-selector layer.
@@ -661,9 +661,9 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
     // as a DISCRETE power-of-two ladder — each 14-velocity step doubles the
     // rate, from a quarter-speed bottom step to an 8x cap: vel 1-14 = 0.25x,
     // 15-28 = 0.5x, 29-42 = 1x, 43-56 = 2x, 57-70 = 4x, 71+ = 8x. Absent = 1x
-    // (default speeds). Anchored on the breathes' natural 1-bar cycle: vel 1 =
-    // 4 bars (the slowest, deepest breathe), 15 = 2 bars, 29 = the default 1
-    // bar, 43 = 2 beats, 57 = 1 beat. Powers of two keep every bank's cycles on the bar grid
+    // (default speeds). Anchored on the breathes' natural 4-bar cycle: vel 1 =
+    // 16 bars (the slowest, deepest breathe), 15 = 8 bars, 29 = the default 4
+    // bars, 43 = 2 bars, 57 = 1 bar, 71+ = 2 beats. Powers of two keep every bank's cycles on the bar grid
     // (the phase clocks re-lock to the song position at transport start —
     // see BumpState::resyncClocks); the 8x cap is where the natively-faster
     // chases (1 cycle/beat) stop reading as motion and start aliasing. While
@@ -766,9 +766,11 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
             }
             else if (isBreathesPitch (pitch))
             {
-                // Half the chase rate — the periodic breathes cycle once per
-                // bar. Velocity = the glow-mask blend depth (127 untouched).
-                recipes[nRecipes++] = { fn, kGlow, 0.5f, 1.0f - vel / 127.0f };
+                // One-eighth the chase rate — the periodic breathes cycle once
+                // per 4 bars (slow, ambient). Velocity = the glow-mask blend
+                // depth (127 untouched). At vel-1 global speed (0.25x) this
+                // stretches to a 16-bar cycle.
+                recipes[nRecipes++] = { fn, kGlow, 0.125f, 1.0f - vel / 127.0f };
             }
             else   // chases — velocity is tail length, or (under global speed) the colour route
                 recipes[nRecipes++] = { fn, kTail, 1.0f, speedHeld ? 0.5f : vel / 127.0f };
