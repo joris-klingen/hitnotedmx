@@ -132,7 +132,8 @@ float radar      (double t, int barIdx, int pixel, int nPix, int nBars, float ta
 float fountain   (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 
 // Breathes (fill).
-float ripple_h   (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
+float pond       (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
+float gyre       (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float bloom      (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float shimmer    (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;
 float glow       (double t, int barIdx, int pixel, int nPix, int nBars, float tail) noexcept;

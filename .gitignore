@@ -31,3 +31,5 @@ DerivedData/
 .AppleDouble
 .LSOverride
 Icon?
+
+.cache/

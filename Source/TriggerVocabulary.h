@@ -10,7 +10,7 @@ namespace hitnotedmx::vocab
 // recoloured, a label is repurposed). Each version has a frozen snapshot in
 // `mappings/v<N>.tsv` (note → chainName); the migration tool diffs two
 // snapshots to convert clips across versions. Freeze procedure: mappings/README.md.
-inline constexpr int kMappingVersion = 12;
+inline constexpr int kMappingVersion = 13;
 
 // The trigger vocabulary — the SINGLE source of truth for what each MIDI note
 // does and what it's called. Both the on-screen trigger menu (TriggerMenu) and
