@@ -33,7 +33,7 @@ things per group:
 
 | Group | Harder note (higher velocity) = |
 |---|---|
-| **Chases** | **Longer trail** behind the moving head — not faster. Soft = a single pixel, hard = a long comet tail. |
+| **Chases** | **Longer trail** behind the moving head — not faster. Soft = a single pixel, hard = a long comet tail. Always, Master Speed or not. |
 | **Breathes** | **Fuller, cleaner** look. Soft notes dim the shape into a patchy wash; full velocity leaves it untouched. Speed is unchanged. |
 | **Wild** | **Faster**, snapped to musical divisions — see the ladder below. |
 | **Multicolor** | **Faster**, smoothly. Soft ≈ ⅕ speed, medium (around half-velocity) = normal, hard ≈ 2× speed. |
@@ -79,9 +79,13 @@ There are six steps. Play the Speed note softer for slower, harder for faster:
 
 **Not holding the Speed note = normal speed** (the defaults in section 1).
 
-> While Speed is held, the Chase and Wild looks stop using velocity for their
-> trail / speed and instead use it to pick the colour (harder = primary colour,
-> softer = secondary). The Master Speed note is doing the timing for them.
+> While Speed is held, the **Wild** looks stop using velocity for their speed
+> and instead use it to pick the colour (harder = primary colour, softer =
+> secondary). The Master Speed note is doing the timing for them.
+>
+> **Chases are not affected** — their velocity is always the trail length,
+> whether or not Speed is held. Master Speed is the only thing that sets how
+> fast a chase moves.
 
 ---
 
