@@ -26,8 +26,8 @@ namespace hitnotedmx
 //   Pixel-zone select        Palette ROUTE: >= 64 → primary, < 64 → secondary
 //                            (kVelocityThreshold; see routeForVelocity)
 //   Chases (brightness)      TAIL length of the comet head — hard = long trail.
-//                            UNDER global speed (G8): picks the palette ROUTE
-//                            (>=64 primary, <64 secondary) instead.
+//                            Always tail, G8 or not: chase RATE comes solely
+//                            from the global speed multiplier.
 //   Wild (brightness)        Beat-synced SPEED division (127 = 1/16 … 0 = 1/1);
 //                            sparkle / sparkle_few stay free-running. UNDER G8:
 //                            picks the palette ROUTE instead.
@@ -667,10 +667,11 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
     // (the phase clocks re-lock to the song position at transport start —
     // see BumpState::resyncClocks); the 8x cap is where the natively-faster
     // chases (1 cycle/beat) stop reading as motion and start aliasing. While
-    // it's held, chase/wild velocity is freed from tail/beat-speed duty and
-    // instead picks the palette ROUTE (>=64 primary, <64 secondary); the
-    // strongest (highest-velocity) chase/wild wins. dynRoute feeds the colour
-    // resolution in the bar compose below.
+    // it's held, WILD velocity is freed from beat-speed duty and instead picks
+    // the palette ROUTE (>=64 primary, <64 secondary); the strongest
+    // (highest-velocity) wild wins. dynRoute feeds the colour resolution in the
+    // bar compose below. Chases keep their velocity on tail duty throughout —
+    // their rate is this multiplier and nothing else.
     const bool  speedHeld = state.isActive (static_cast<std::uint8_t> (kSpeedNote));
     const float gMult = [&]() -> float
     {
@@ -741,9 +742,10 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
             dynamicLayerHeld = true;
             if (nRecipes >= kMaxRecipes)
                 return;
-            // Under global speed, chase/wild velocity picks the colour route
-            // (not tail/beat-speed); track the strongest one.
-            const bool routeByVel = speedHeld && (isWildPitch (pitch) || isChasesPitch (pitch));
+            // Under global speed, wild velocity picks the colour route (not
+            // beat-speed); track the strongest one. Chases are excluded — their
+            // velocity is always the tail.
+            const bool routeByVel = speedHeld && isWildPitch (pitch);
             if (routeByVel && static_cast<int> (n.velocity) > dynRouteVel)
             {
                 dynRouteVel = n.velocity;
@@ -772,8 +774,8 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
                 // stretches to a 16-bar cycle.
                 recipes[nRecipes++] = { fn, kGlow, 0.125f, 1.0f - vel / 127.0f };
             }
-            else   // chases — velocity is tail length, or (under global speed) the colour route
-                recipes[nRecipes++] = { fn, kTail, 1.0f, speedHeld ? 0.5f : vel / 127.0f };
+            else   // chases — velocity is the tail length, always; rate is global speed only
+                recipes[nRecipes++] = { fn, kTail, 1.0f, vel / 127.0f };
         }
         else if (isColorDynPitch (pitch))
         {
@@ -928,8 +930,8 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
             }
             else
             {
-                // Zone route wins; then a chase/wild's own route under global
-                // speed (dynRoute); otherwise primary. Bars don't route colour.
+                // Zone route wins; then a wild's own route under global speed
+                // (dynRoute); otherwise primary. Bars don't route colour.
                 Route route = pixR     != Route::None ? pixR
                             : dynRoute != Route::None ? dynRoute
                             : Route::Primary;
