@@ -10,6 +10,9 @@ external dependencies).
 It also runs as a **Standalone** app so you can design and preview a show
 without a DAW at all.
 
+📖 **[Manual for Ableton users](docs/MANUAL.md)** — setup, the keyboard map,
+how notes combine, what velocity does, the master notes and workflow tips.
+
 ## What it does
 
 - **Note → light, at the audio rate.** Every note is a trigger: structural
@@ -31,8 +34,9 @@ without a DAW at all.
 
 ## The rig
 
-**4 RGB bars × 18 pixels + 2 RGBW spots = 228 DMX channels** (bars on DMX
-1–216, spots on 217 / 223), defined in `Source/Rig.h`.
+**4 RGB bars × 18 pixels + 2 RGBW spots = 228 DMX channels** by default
+(spots on DMX 1–6 / 7–12, bars from ch 13). The bar grid is a runtime setting
+(up to 8 bars × 32 pixels); see `Source/Rig.h`.
 
 ## The note map
 
