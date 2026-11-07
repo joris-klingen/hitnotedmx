@@ -602,14 +602,17 @@ void HitNoteDmxAudioProcessorEditor::buttonClicked (juce::Button* b)
         auto& dmx = proc.getDmx();
         if (dmx.isRunning())
         {
-            // Release the port so another instance can take it (or just stop).
+            // Manual override: release the port and stop auto-connect until the
+            // next load (or a Connect click re-arms it).
             dmx.disconnect();
-            appendLog ("[usb] disconnected");
+            appendLog ("[usb] disconnected (auto-connect off until re-armed)");
         }
         else
         {
-            const bool ok = dmx.connect();
-            appendLog (ok ? "[usb] connected" : "[usb] connect failed");
+            // Re-arm auto-connect: the link comes up a moment later on the
+            // driver's own thread (and the editor timer logs the edge).
+            dmx.connect();
+            appendLog ("[usb] auto-connect armed");
         }
         logDeviceStatus();   // detail (firmware, or the "No ENTTEC found" reason)
         updateConnectButton();
