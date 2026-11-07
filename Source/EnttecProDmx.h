@@ -31,18 +31,25 @@ public:
     EnttecProDmx();
     ~EnttecProDmx() override;
 
+    // Arm the auto-connect loop: this instance now WANTS the port and the
+    // send-timer thread will scan for an ENTTEC and open it on its own (and
+    // keep retrying ~1×/s until one appears — hotplug). Non-blocking: it does
+    // not open the port on the calling thread, so the actual link comes up a
+    // moment later. Returns true if armed (always, on the real driver). The
+    // processor calls this once at construction for always-on auto-connect;
+    // the editor's Connect button re-arms it after a manual Disconnect.
     bool connect();
     void disconnect();
     bool isConnected() const                                { return connected.load(); }
 
-    // True once a connect succeeds, until disconnect(): "this instance owns /
-    // wants the port". Stays true across an auto-reconnect gap (when
-    // isConnected() is briefly false). Drives the editor's Connect/Disconnect
-    // toggle so only the owning instance shows "Disconnect".
+    // True while this instance is armed (from connect()/auto-connect until
+    // disconnect()): "this instance owns / wants the port". Stays true across
+    // an auto-reconnect gap and while cold-searching before the first link.
+    // Drives the editor's Connect/Disconnect toggle.
     bool isRunning() const                                  { return shouldRun.load(); }
 
     int  scanDevices();
-    int  numDevices() const                                 { return numDevicesDetected; }
+    int  numDevices() const                                 { return numDevicesDetected.load(); }
 
     juce::String getStatusText() const;
 
@@ -71,7 +78,8 @@ private:
     // getStatusText() read. The first (user-initiated) connect records freely.
     bool openPort (const std::string& devicePath, bool recordError = true);
     bool setNonBlocking();         // switch the open fd to O_NONBLOCK for sends
-    void attemptReconnect();       // timer-thread: throttled re-open of the port
+    void attemptConnect();         // timer-thread: throttled re-scan + open of the port
+    bool queryWidgetParams();      // timer-thread: one best-effort firmware/refresh query
     int  sendDmxFrame();           // 1 = sent, 0 = would-block (dropped), -1 = hard error
     int  sendPacket (int label, const unsigned char* data, int length);
     int  flushTxBuffer();          // resume/finish writing txBuf; same returns as sendPacket
@@ -80,12 +88,12 @@ private:
     void closePort();
 
     std::atomic<bool>  connected { false };  // a live port we are sending on
-    std::atomic<bool>  shouldRun  { false };  // user wants output (drives reconnect)
+    std::atomic<bool>  shouldRun  { false };  // armed: want the port (drives auto-connect + reconnect)
     int                reconnectFramesLeft { 0 };  // send-thread only: retry countdown
     std::atomic<bool>  blackout  { false };
     std::atomic<float> strobeHz  { 0.0f };   // 0 = no strobe shutter
     std::uint64_t      txFrame   { 0 };       // emitted-frame counter (send thread only)
-    int numDevicesDetected { 0 };
+    std::atomic<int>   numDevicesDetected { 0 };  // refreshed by scanDevices on either thread
 
     // Index 0 is the DMX start code (kept 0). Channels 1..512 follow.
     static constexpr int kDataLen = 513;
@@ -108,6 +116,10 @@ private:
     int refreshRate { 0 };
     juce::String lastError;
     juce::CriticalSection dataLock;
+    // Guards selectedDevicePath across the message thread (scanDevices from the
+    // ctor/disconnect) and the send-timer thread (auto-connect re-scan). Never
+    // held on the audio thread.
+    juce::CriticalSection deviceLock;
 };
 
 }

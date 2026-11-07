@@ -65,6 +65,16 @@ HitNoteDmxAudioProcessor::HitNoteDmxAudioProcessor()
 
     for (auto& d : barDim)
         d.store (1.0f);   // every bar at full until the editor / state says otherwise
+
+    // Always-on auto-connect: arm the ENTTEC driver as soon as the plugin
+    // loads so the rig lights up with no Connect click — the show machine just
+    // opens the set. This is non-blocking (the driver's send-timer thread does
+    // the scanning + opening and keeps retrying ~1×/s until a device appears,
+    // so a box plugged in after Live is already up is still picked up). It runs
+    // headless — no editor needed. A manual Disconnect overrides it until the
+    // next load (or a Connect click re-arms). On non-macOS builds connect() is
+    // a no-op (there is no driver).
+    dmx.connect();
 }
 
 HitNoteDmxAudioProcessor::~HitNoteDmxAudioProcessor()

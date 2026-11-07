@@ -118,9 +118,12 @@ int EnttecProDmx::scanDevices()
         }
     }
 
-    selectedDevicePath = firstMatch;
-    numDevicesDetected = count;
-    return numDevicesDetected;
+    {
+        const juce::ScopedLock sl (deviceLock);
+        selectedDevicePath = firstMatch;
+    }
+    numDevicesDetected.store (count);
+    return count;
 }
 
 bool EnttecProDmx::openPort (const std::string& devicePath, bool recordError)
@@ -209,67 +212,45 @@ bool EnttecProDmx::openPort (const std::string& devicePath, bool recordError)
 
 bool EnttecProDmx::connect()
 {
-    if (connected.load())
+    // Arm (idempotent): all actual port opening happens on the send-timer
+    // thread (attemptConnect), so the message thread never races the timer for
+    // the fd. Already armed → nothing to do; the timer is already scanning
+    // and/or sending.
+    if (shouldRun.load())
         return true;
 
-    // A session is already armed: the timer thread owns the port and is
-    // retrying on its own. Bail rather than open a second fd concurrently —
-    // clicking Connect during an auto-reconnect must not race the timer.
-    if (shouldRun.load())
-        return false;
-
-    if (selectedDevicePath.empty())
-        scanDevices();
-
-    if (selectedDevicePath.empty())
-    {
-        lastError = "No ENTTEC DMX USB Pro serial port found.";
-        return false;
-    }
-
-    if (! openPort (selectedDevicePath))
-        return false;
-
-    // Query the widget parameters (firmware / refresh rate) for the status
-    // panel. This is BEST-EFFORT: the widget does not need to answer for us to
-    // drive DMX (the Send-DMX message is one-way), and some units are slow or
-    // quiet on the first query right after the port opens. So we try a few
-    // times but never fail the connection just because the reply didn't land.
-    firmwareMajor = firmwareMinor = refreshRate = 0;
-    bool gotParams = false;
-
-    for (int attempt = 0; attempt < 3 && ! gotParams; ++attempt)
-    {
-        tcflush (serialFd, TCIFLUSH);   // drop any stale RX, keep our TX
-
-        int size = 0;
-        if (sendPacket (GET_WIDGET_PARAMS, reinterpret_cast<unsigned char*> (&size), 2) <= 0)
-            continue;
-
-        DmxUsbProParams params {};
-        if (receivePacket (GET_WIDGET_PARAMS_REPLY,
-                           reinterpret_cast<unsigned char*> (&params),
-                           sizeof (params)) > 0)
-        {
-            firmwareMajor = params.FirmwareMSB;
-            firmwareMinor = params.FirmwareLSB;
-            refreshRate   = params.RefreshRate;
-            gotParams = true;
-        }
-    }
-
-    // The handshake reads relied on blocking I/O (VMIN/VTIME). The send loop
-    // never reads and must never stall the timer thread, so switch to
-    // non-blocking writes now: a wedged device drops frames (EAGAIN) instead
-    // of freezing output on the last frame.
-    setNonBlocking();
-
-    connected.store (true);
-    shouldRun.store (true);   // arm the auto-reconnect loop for the session
     lastError = {};
-    txFrame = 0;
-    reconnectFramesLeft = 0;
-    startTimer (1000 / kSendRateHz);   // ms period → kSendRateHz frames/sec
+    reconnectFramesLeft = 0;   // timer not running yet → safe to set; try at once
+    shouldRun.store (true);    // the timer callback now scans + opens on its own
+    if (! isTimerRunning())
+        startTimer (1000 / kSendRateHz);   // ms period → kSendRateHz frames/sec
+    return true;
+}
+
+bool EnttecProDmx::queryWidgetParams()
+{
+    // Best-effort firmware / refresh-rate query for the status panel, run on
+    // the timer thread right after a fresh open while the fd is still blocking
+    // (VMIN/VTIME). ONE attempt so the timer thread stalls at most ~1 s if the
+    // widget is quiet; the Send-DMX message is one-way, so DMX output never
+    // depends on this reply. Mirrors the old connect() handshake.
+    firmwareMajor = firmwareMinor = refreshRate = 0;
+
+    tcflush (serialFd, TCIFLUSH);   // drop any stale RX, keep our TX
+
+    int size = 0;
+    if (sendPacket (GET_WIDGET_PARAMS, reinterpret_cast<unsigned char*> (&size), 2) <= 0)
+        return false;
+
+    DmxUsbProParams params {};
+    if (receivePacket (GET_WIDGET_PARAMS_REPLY,
+                       reinterpret_cast<unsigned char*> (&params),
+                       sizeof (params)) <= 0)
+        return false;
+
+    firmwareMajor = params.FirmwareMSB;
+    firmwareMinor = params.FirmwareLSB;
+    refreshRate   = params.RefreshRate;
     return true;
 }
 
@@ -318,20 +299,29 @@ juce::String EnttecProDmx::getStatusText() const
              + "\nRefresh rate: " + juce::String (refreshRate);
     }
 
-    // Link dropped mid-session: the timer thread is retrying ~1×/s. shouldRun
-    // is the user's "I want output" intent, so this only shows after a real
-    // connect, not on an idle plugin.
+    // Armed but not linked: the timer thread is scanning + opening ~1×/s. This
+    // covers both cold auto-connect (waiting for a device to appear) and a
+    // link that dropped mid-session. The device count steers the wording.
     if (shouldRun.load())
-        return "DMX link lost - reconnecting...";
+    {
+        const int n = numDevicesDetected.load();
+        if (n == 0)
+            return "Auto-connect on - waiting for an ENTTEC DMX USB Pro...";
+        if (n == 1)
+            return "Auto-connect on - opening the ENTTEC...";
+        return "Found " + juce::String (n)
+             + " ENTTEC devices. Please leave only one connected.";
+    }
 
     if (! lastError.isEmpty())
         return lastError;
 
-    if (numDevicesDetected == 0)
+    const int n = numDevicesDetected.load();
+    if (n == 0)
         return "No ENTTEC DMX USB Pro found. Plug one in and retry.";
-    if (numDevicesDetected == 1)
+    if (n == 1)
         return "Found an ENTTEC DMX USB Pro. Click \"Connect USB\" to open it.";
-    return "Found " + juce::String (numDevicesDetected)
+    return "Found " + juce::String (n)
          + " ENTTEC devices. Please leave only one connected.";
 }
 
@@ -350,7 +340,9 @@ void EnttecProDmx::hiResTimerCallback()
 
     if (! connected.load())
     {
-        attemptReconnect();
+        // Not linked yet (cold auto-connect) or the link dropped mid-run —
+        // either way, throttled scan + re-open on this (timer) thread.
+        attemptConnect();
         return;
     }
 
@@ -367,9 +359,9 @@ void EnttecProDmx::hiResTimerCallback()
     }
 }
 
-void EnttecProDmx::attemptReconnect()
+void EnttecProDmx::attemptConnect()
 {
-    // Throttle: one re-open attempt per ~kReconnectFrames ticks.
+    // Throttle: one open attempt per ~kReconnectFrames ticks.
     if (reconnectFramesLeft > 0)
     {
         --reconnectFramesLeft;
@@ -377,14 +369,30 @@ void EnttecProDmx::attemptReconnect()
     }
     reconnectFramesLeft = kReconnectFrames;
 
-    // Retry the same callout path the session opened. It is derived from the
-    // device serial (/dev/cu.usbserial-EN<serial>), so it survives a replug;
-    // re-scanning here would race the message-thread scanDevices(), so we don't.
-    if (selectedDevicePath.empty() || ! openPort (selectedDevicePath, false /* don't record: timer thread */))
-        return;
+    // Re-scan every attempt so a device plugged in AFTER arming is picked up
+    // (auto-connect / hotplug), not just one that was present at load. Scanning
+    // is confined to this timer thread (plus the ctor/disconnect while the
+    // timer is stopped) and the path is read under deviceLock, so it never
+    // races the message-thread reads. The callout path is serial-stable
+    // (/dev/cu.usbserial-EN<serial>), so a replug resolves to the same path.
+    std::string path;
+    {
+        const juce::ScopedLock sl (deviceLock);
+        scanDevices();
+        path = selectedDevicePath;
+    }
+    if (path.empty())
+        return;   // nothing plugged in yet — keep searching
 
+    if (! openPort (path, false /* don't record lastError: timer thread */))
+        return;   // present but not openable yet (e.g. EBUSY) — retry next cycle
+
+    // Fresh open: fd is blocking, so grab the firmware/refresh params once
+    // (best-effort), then switch to non-blocking writes for the send loop.
+    queryWidgetParams();
     setNonBlocking();
-    connected.store (true);   // back in business; firmware/refresh kept from connect()
+    txFrame = 0;
+    connected.store (true);
 }
 
 int EnttecProDmx::sendDmxFrame()
@@ -564,7 +572,7 @@ EnttecProDmx::~EnttecProDmx()
 
 int EnttecProDmx::scanDevices()
 {
-    numDevicesDetected = 0;
+    numDevicesDetected.store (0);
     return 0;
 }
 
