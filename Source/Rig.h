@@ -10,12 +10,14 @@ namespace hitnotedmx
 
 // The lighting rig — physical fixtures and their DMX addresses.
 //
-// A grid of vertical RGB bars (cols × rows pixels, bottom-up) + 2 RGBW spots.
+// A grid of vertical RGB bars (cols × rows pixels, bottom-up) + 2 RGBL spots
+// (ADJ Saber Spot RGBL in its **6CH RGBL** mode — red/green/blue/lime, no
+// white emitter; warm white is mixed, see kSpotWarm* in Composition.cpp).
 // The GRID SHAPE is a runtime setting (the editor's grid section / saved
 // state); everything below 512 channels is allowed. The spots are pinned at
 // the BOTTOM of the universe so a grid re-shape never re-patches them:
 //
-//   spot_l : DMX 1-6    (Dim, R, G, B, W, Strobe)
+//   spot_l : DMX 1-6    (R, G, B, Lime, Dimmer, Dimmer fine)
 //   spot_r : DMX 7-12
 //   bar_1  : DMX 13-…   (pixel 1 RGB = ch 13..15, pixel 2 RGB = ch 16..18, …)
 //   bar_2+ : contiguous after bar 1 (rows × 3 channels per bar)
@@ -66,12 +68,13 @@ struct SpotFixture
 {
     int dmxStart;
 
-    constexpr int dimmer() const noexcept { return dmxStart + 0; }
-    constexpr int red()    const noexcept { return dmxStart + 1; }
-    constexpr int green()  const noexcept { return dmxStart + 2; }
-    constexpr int blue()   const noexcept { return dmxStart + 3; }
-    constexpr int white()  const noexcept { return dmxStart + 4; }
-    constexpr int strobe() const noexcept { return dmxStart + 5; }
+    // ADJ Saber Spot RGBL, 6CH RGBL mode.
+    constexpr int red()        const noexcept { return dmxStart + 0; }
+    constexpr int green()      const noexcept { return dmxStart + 1; }
+    constexpr int blue()       const noexcept { return dmxStart + 2; }
+    constexpr int lime()       const noexcept { return dmxStart + 3; }
+    constexpr int dimmer()     const noexcept { return dmxStart + 4; }
+    constexpr int dimmerFine() const noexcept { return dmxStart + 5; }
 };
 
 inline constexpr std::array<SpotFixture, kNumSpots> kSpots {{

@@ -33,14 +33,15 @@ juce::uint8 toScreenByte (float v) noexcept
     return toByte (displayCurve (v));
 }
 
-// Composite an RGBW + dimmer cell down to a screen RGB.
-// White is added with a warm tilt so it visually reads like the
-// `white=1, r=0.4, g=0.15` warm-white tint the recipe layer uses.
-juce::Colour rgbwToScreen (float r, float g, float b, float w, float dim) noexcept
+// Composite an RGBL + dimmer spot down to a screen RGB. Lime is a broad
+// phosphor emitter, so it's previewed as a pale yellow-green (not a pure
+// screen lime) — the mixed warm white (kSpotWarm* in Composition.cpp) then
+// reads as warm white on screen rather than orange.
+juce::Colour rgblToScreen (float r, float g, float b, float lime, float dim) noexcept
 {
-    const float dr = juce::jlimit (0.0f, 1.0f, (r + w * 1.0f)  * dim);
-    const float dg = juce::jlimit (0.0f, 1.0f, (g + w * 0.85f) * dim);
-    const float db = juce::jlimit (0.0f, 1.0f, (b + w * 0.70f) * dim);
+    const float dr = juce::jlimit (0.0f, 1.0f, (r + lime * 0.60f) * dim);
+    const float dg = juce::jlimit (0.0f, 1.0f, (g + lime * 0.90f) * dim);
+    const float db = juce::jlimit (0.0f, 1.0f, (b + lime * 0.50f) * dim);
     return juce::Colour::fromRGB (toScreenByte (dr), toScreenByte (dg), toScreenByte (db));
 }
 
@@ -234,14 +235,14 @@ void DmxVisualizer::rebuildCache()
         const float r   = values.get (spot.red());
         const float gv  = values.get (spot.green());
         const float b   = values.get (spot.blue());
-        const float ww  = values.get (spot.white());
+        const float lm  = values.get (spot.lime());
 
         const int x = spotX[s];
         drawLed (x + spotSize * 0.5f, spotY + spotSize * 0.5f, spotSize * 0.5f,
-                 rgbwToScreen (r, gv, b, ww, dim), 1.0f);   // round halo for the spots (no stretch)
+                 rgblToScreen (r, gv, b, lm, dim), 1.0f);   // round halo for the spots (no stretch)
 
         // Start DMX address, small, under the fixture.
-        drawAddress (g, spot.dimmer(), x, spotY + spotSize, spotSize, 0);
+        drawAddress (g, spot.dmxStart, x, spotY + spotSize, spotSize, 0);
     }
 
     // ---- Bars (unlabelled) ----------------------------------------------
@@ -330,8 +331,8 @@ void DmxVisualizer::repaintIfChanged()
         current[i++] = toByte (values.get (spot.red()));
         current[i++] = toByte (values.get (spot.green()));
         current[i++] = toByte (values.get (spot.blue()));
-        current[i++] = toByte (values.get (spot.white()));
-        current[i++] = toByte (values.get (spot.strobe()));
+        current[i++] = toByte (values.get (spot.lime()));
+        current[i++] = toByte (values.get (spot.dimmerFine()));
     }
     // Selection outlines: the rig is black in the armed-but-unlit state, so the
     // DMX bytes above don't capture a selection change — fingerprint it too.

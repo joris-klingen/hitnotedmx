@@ -166,9 +166,9 @@ struct BumpState
 //      Multicolor bank, pitches 60..83) is held, its RGB replaces the
 //      palette route entirely. Apply color × brightness to the three DMX
 //      channels of that pixel.
-//   5. Spots: warm-white tint if WW pitches held, plus secondary
-//      colour overlay if their sec pitches held. RGBW channels set
-//      directly (dimmer master).
+//   5. Spots: mixed warm white if WW pitches held, plus secondary
+//      colour overlay if their sec pitches held. RGBL channels set
+//      directly (lime derived from the colour; dimmer master).
 //
 // `outValues` is cleared at entry; bars and spots are fully written
 // for every audio block (DMX channels never inherit stale state from

@@ -32,7 +32,8 @@ program a light show.
 5. **Demo clips.** Click the folder button (**Show clips**): layered example
    clips are written to `~/Music/HitNoteDmx Showcase/` and opened in Finder.
    Drag any onto the track.
-6. **Grid.** The default rig is **4 bars × 18 pixels** plus 2 RGBW spots. Set
+6. **Grid.** The default rig is **4 bars × 18 pixels** plus 2 RGBL spots
+   (ADJ Saber Spot RGBL, set to **6CH RGBL** mode on the fixture). Set
    another shape (up to 8 bars, 32 pixels) in the grid fields + **Set grid**.
    DMX patch: spot L = ch 1–6, spot R = 7–12, bars from ch 13 (3 ch/pixel,
    bar after bar, pixel 1 at the bottom).
@@ -90,8 +91,10 @@ colour      =  primary colour, or the secondary colour where a zone asks for it
 - **Multicolor** looks bring their own colour: while one is held it replaces the
   palette on the lit pixels (masks and motion still apply on top).
 - **Black** (C5) is a real colour: a soft *Black* note fades the look out.
-- **Spots** are separate RGBW fixtures: *WW* = warm white, *col* = the current
-  **secondary** colour.
+- **Spots** are separate RGBL fixtures (red/green/blue/lime — no white LED):
+  *WW* = a mixed warm white, *col* = the current **secondary** colour.
+  Typical use: Spot L = the tight pin beam on the singer, Spot R = the
+  wide-lens wash over the band.
 
 **Example clip** — a red chase climbing the two outer bars, with a soft cyan
 accent at the top:
