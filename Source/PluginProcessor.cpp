@@ -123,8 +123,9 @@ void HitNoteDmxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     const auto gridReq = gridRequest.load (std::memory_order_relaxed);
     if (gridReq != appliedGrid)
     {
-        grid.rig.cols = static_cast<int> (gridReq >> 8);
-        grid.rig.rows = static_cast<int> (gridReq & 0xffu);
+        grid.rig.cols  = static_cast<int> ((gridReq >> 8) & 0xffu);
+        grid.rig.rows  = static_cast<int> (gridReq & 0xffu);
+        grid.rig.spots = unpackSpots (gridReq);
         grid.rebuild();
         bumpState.reset();
         dmxValues.clear();
@@ -305,8 +306,13 @@ void HitNoteDmxAudioProcessor::setStateInformation (const void* data, int sizeIn
                 static_cast<int> (parameters.state.getProperty (kGridColsProp, kDefaultBars)));
             const int rows = juce::jlimit (1, kMaxRows,
                 static_cast<int> (parameters.state.getProperty (kGridRowsProp, kDefaultRows)));
+            // Spot type: old sessions lack it → the RGBL default.
+            const auto spots = static_cast<int> (parameters.state.getProperty (kSpotKindProp, 0)) == 1
+                                   ? SpotKind::rgbw : SpotKind::rgbl;
             if (cols * rows <= kMaxGridCells)
-                gridRequest.store (packGrid (cols, rows));
+                gridRequest.store (packGrid (cols, rows, spots));
+            else   // bad shape in the state: keep the current one, still take the spot type
+                gridRequest.store (packGrid (getRig().cols, getRig().rows, spots));
 
             // Per-bar dims ride the state as a space-separated string; old
             // sessions lack it → every bar stays at full.
@@ -331,11 +337,19 @@ Rig HitNoteDmxAudioProcessor::setGridShape (int cols, int rows)
     while (cols * rows > kMaxGridCells && rows > 1)
         --rows;
 
-    gridRequest.store (packGrid (cols, rows));
+    const SpotKind spots = getRig().spots;   // a reshape keeps the spot type
+    gridRequest.store (packGrid (cols, rows, spots));
     parameters.state.setProperty (kGridColsProp, cols, nullptr);
     parameters.state.setProperty (kGridRowsProp, rows, nullptr);
     resetBarDims();   // a fresh grid starts every bar at full brightness
-    return { cols, rows };
+    return { cols, rows, spots };
+}
+
+void HitNoteDmxAudioProcessor::setSpotKind (SpotKind kind)
+{
+    const Rig r = getRig();
+    gridRequest.store (packGrid (r.cols, r.rows, kind));
+    parameters.state.setProperty (kSpotKindProp, static_cast<int> (kind), nullptr);
 }
 
 void HitNoteDmxAudioProcessor::setBarDim (int barIdx, float v) noexcept

@@ -34,9 +34,9 @@ how notes combine, what velocity does, the master notes and workflow tips.
 
 ## The rig
 
-**4 RGB bars × 18 pixels + 2 RGBL spots = 228 DMX channels** by default
-(spots — ADJ Saber Spot RGBL in **6CH RGBL** mode — on DMX 1–6 / 7–12, bars
-from ch 13). The bar grid is a runtime setting
+**4 RGB bars × 18 pixels + 2 spots = 228 DMX channels** by default (spots on
+DMX 1–6 / 7–12, bars from ch 13). The spot type is a toggle in the editor:
+**RGBL** (default — ADJ Saber Spot RGBL in **6CH RGBL** mode) or **RGBW**. The bar grid is a runtime setting
 (up to 8 bars × 32 pixels); see `Source/Rig.h`.
 
 ## The note map

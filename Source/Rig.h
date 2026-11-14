@@ -10,14 +10,19 @@ namespace hitnotedmx
 
 // The lighting rig — physical fixtures and their DMX addresses.
 //
-// A grid of vertical RGB bars (cols × rows pixels, bottom-up) + 2 RGBL spots
-// (ADJ Saber Spot RGBL in its **6CH RGBL** mode — red/green/blue/lime, no
-// white emitter; warm white is mixed, see kSpotWarm* in Composition.cpp).
+// A grid of vertical RGB bars (cols × rows pixels, bottom-up) + 2 spots.
+// The SPOT TYPE is a runtime setting too (the editor's RGBL / RGBW toggle,
+// see SpotKind) — both types are 6 channels, so the patch never moves:
+//
+//   RGBL (default) : ADJ Saber Spot RGBL in its **6CH RGBL** mode —
+//                    R, G, B, Lime, Dimmer, Dimmer fine. No white emitter;
+//                    warm white is mixed (kSpotLWarm* in Composition.cpp).
+//   RGBW           : the original spots — Dim, R, G, B, W, Strobe.
 // The GRID SHAPE is a runtime setting (the editor's grid section / saved
 // state); everything below 512 channels is allowed. The spots are pinned at
 // the BOTTOM of the universe so a grid re-shape never re-patches them:
 //
-//   spot_l : DMX 1-6    (R, G, B, Lime, Dimmer, Dimmer fine)
+//   spot_l : DMX 1-6    (channel order per SpotKind, above)
 //   spot_r : DMX 7-12
 //   bar_1  : DMX 13-…   (pixel 1 RGB = ch 13..15, pixel 2 RGB = ch 16..18, …)
 //   bar_2+ : contiguous after bar 1 (rows × 3 channels per bar)
@@ -40,12 +45,21 @@ inline constexpr int kMaxGridCells = (kDmxUniverseSize - kNumSpots * kSpotChanne
 inline constexpr int kDefaultBars  = 4;
 inline constexpr int kDefaultRows  = 18;
 
-// The runtime grid shape + DMX addressing math. A plain POD (two ints), so
+// Which fixture sits on the two spot slots. Both are 6-channel, so only the
+// channel ORDER and the meaning of the fourth emitter differ.
+enum class SpotKind : std::uint8_t
+{
+    rgbl = 0,   // ADJ Saber Spot RGBL, 6CH RGBL mode (default)
+    rgbw = 1,   // original RGBW spot
+};
+
+// The runtime grid shape + spot type + DMX addressing math. A plain POD, so
 // the audio thread reads it without synchronisation once applied.
 struct Rig
 {
-    int cols = kDefaultBars;   // bar count
-    int rows = kDefaultRows;   // pixels per bar
+    int      cols  = kDefaultBars;     // bar count
+    int      rows  = kDefaultRows;     // pixels per bar
+    SpotKind spots = SpotKind::rgbl;   // fixture type on the two spot slots
 
     // 1-based DMX channel of bar `barIdx`'s pixel 1 red component.
     constexpr int barStart (int barIdx) const noexcept
@@ -64,17 +78,27 @@ struct Rig
     constexpr int rigChannels() const noexcept { return kNumSpots * kSpotChannels + cells() * 3; }
 };
 
+// 1-based DMX channels of one spot, resolved for a SpotKind.
+struct SpotChannels
+{
+    int red, green, blue;
+    int fourth;   // the fourth emitter: Lime (RGBL) or White (RGBW)
+    int dimmer;
+    int spare;    // Dimmer fine (RGBL) / Strobe (RGBW) — always written 0
+};
+
 struct SpotFixture
 {
     int dmxStart;
 
-    // ADJ Saber Spot RGBL, 6CH RGBL mode.
-    constexpr int red()        const noexcept { return dmxStart + 0; }
-    constexpr int green()      const noexcept { return dmxStart + 1; }
-    constexpr int blue()       const noexcept { return dmxStart + 2; }
-    constexpr int lime()       const noexcept { return dmxStart + 3; }
-    constexpr int dimmer()     const noexcept { return dmxStart + 4; }
-    constexpr int dimmerFine() const noexcept { return dmxStart + 5; }
+    constexpr SpotChannels channels (SpotKind kind) const noexcept
+    {
+        return kind == SpotKind::rgbw
+            //       R             G             B             W             Dim           Strobe
+            ? SpotChannels { dmxStart + 1, dmxStart + 2, dmxStart + 3, dmxStart + 4, dmxStart + 0, dmxStart + 5 }
+            //       R             G             B             Lime          Dim           Dim fine
+            : SpotChannels { dmxStart + 0, dmxStart + 1, dmxStart + 2, dmxStart + 3, dmxStart + 4, dmxStart + 5 };
+    }
 };
 
 inline constexpr std::array<SpotFixture, kNumSpots> kSpots {{

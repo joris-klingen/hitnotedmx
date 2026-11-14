@@ -33,15 +33,18 @@ juce::uint8 toScreenByte (float v) noexcept
     return toByte (displayCurve (v));
 }
 
-// Composite an RGBL + dimmer spot down to a screen RGB. Lime is a broad
-// phosphor emitter, so it's previewed as a pale yellow-green (not a pure
-// screen lime) — the mixed warm white (kSpotWarm* in Composition.cpp) then
-// reads as warm white on screen rather than orange.
-juce::Colour rgblToScreen (float r, float g, float b, float lime, float dim) noexcept
+// Composite a spot (RGB + fourth emitter + dimmer) down to a screen RGB.
+// RGBW: white is added with a warm tilt, so it reads like the warm-white
+// tint the recipe layer uses. RGBL: lime is a broad phosphor emitter, so
+// it's previewed as a pale yellow-green (not a pure screen lime) — the mixed
+// warm white (kSpotLWarm* in Composition.cpp) then reads as warm white on
+// screen rather than orange.
+juce::Colour spotToScreen (SpotKind kind, float r, float g, float b, float fourth, float dim) noexcept
 {
-    const float dr = juce::jlimit (0.0f, 1.0f, (r + lime * 0.60f) * dim);
-    const float dg = juce::jlimit (0.0f, 1.0f, (g + lime * 0.90f) * dim);
-    const float db = juce::jlimit (0.0f, 1.0f, (b + lime * 0.50f) * dim);
+    const bool  rgbw = kind == SpotKind::rgbw;
+    const float dr = juce::jlimit (0.0f, 1.0f, (r + fourth * (rgbw ? 1.00f : 0.60f)) * dim);
+    const float dg = juce::jlimit (0.0f, 1.0f, (g + fourth * (rgbw ? 0.85f : 0.90f)) * dim);
+    const float db = juce::jlimit (0.0f, 1.0f, (b + fourth * (rgbw ? 0.70f : 0.50f)) * dim);
     return juce::Colour::fromRGB (toScreenByte (dr), toScreenByte (dg), toScreenByte (db));
 }
 
@@ -102,7 +105,7 @@ void DmxVisualizer::paint (juce::Graphics& g)
 
 void DmxVisualizer::setGrid (Rig newRig)
 {
-    if (newRig.cols == rig.cols && newRig.rows == rig.rows)
+    if (newRig.cols == rig.cols && newRig.rows == rig.rows && newRig.spots == rig.spots)
         return;
     rig = newRig;
     rebuildCache();
@@ -231,15 +234,16 @@ void DmxVisualizer::rebuildCache()
     for (int s = 0; s < kNumSpots; ++s)
     {
         const auto& spot = kSpots[s];
-        const float dim = values.get (spot.dimmer());
-        const float r   = values.get (spot.red());
-        const float gv  = values.get (spot.green());
-        const float b   = values.get (spot.blue());
-        const float lm  = values.get (spot.lime());
+        const auto  ch   = spot.channels (rig.spots);
+        const float dim = values.get (ch.dimmer);
+        const float r   = values.get (ch.red);
+        const float gv  = values.get (ch.green);
+        const float b   = values.get (ch.blue);
+        const float x4  = values.get (ch.fourth);
 
         const int x = spotX[s];
         drawLed (x + spotSize * 0.5f, spotY + spotSize * 0.5f, spotSize * 0.5f,
-                 rgblToScreen (r, gv, b, lm, dim), 1.0f);   // round halo for the spots (no stretch)
+                 spotToScreen (rig.spots, r, gv, b, x4, dim), 1.0f);   // round halo for the spots (no stretch)
 
         // Start DMX address, small, under the fixture.
         drawAddress (g, spot.dmxStart, x, spotY + spotSize, spotSize, 0);
@@ -326,13 +330,9 @@ void DmxVisualizer::repaintIfChanged()
     }
     for (int s = 0; s < kNumSpots; ++s)
     {
-        const auto& spot = kSpots[s];
-        current[i++] = toByte (values.get (spot.dimmer()));
-        current[i++] = toByte (values.get (spot.red()));
-        current[i++] = toByte (values.get (spot.green()));
-        current[i++] = toByte (values.get (spot.blue()));
-        current[i++] = toByte (values.get (spot.lime()));
-        current[i++] = toByte (values.get (spot.dimmerFine()));
+        // All six raw channels, in wire order (independent of the spot type).
+        for (int c = 0; c < kSpotChannels; ++c)
+            current[i++] = toByte (values.get (kSpots[s].dmxStart + c));
     }
     // Selection outlines: the rig is black in the armed-but-unlit state, so the
     // DMX bytes above don't capture a selection change — fingerprint it too.

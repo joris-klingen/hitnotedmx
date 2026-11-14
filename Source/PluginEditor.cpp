@@ -267,6 +267,22 @@ HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioP
     setGridButton.onClick = [this] { applyGridFromFields(); };
     addAndMakeVisible (setGridButton);
 
+    // Spot-type toggle: the label IS the state (RGBL = Saber Spot RGBL in 6CH
+    // RGBL mode, RGBW = the original spots). Same DMX footprint either way.
+    spotKindButton.setTooltip ("Spot fixture type on DMX 1-6 / 7-12 - click to switch.\n"
+                               "RGBL: ADJ Saber Spot RGBL in 6CH RGBL mode (R G B Lime Dim Fine)\n"
+                               "RGBW: Dim R G B W Strobe");
+    spotKindButton.onClick = [this]
+    {
+        const auto next = proc.getRig().spots == SpotKind::rgbl ? SpotKind::rgbw : SpotKind::rgbl;
+        proc.setSpotKind (next);
+        showSpotKind (next);
+        dmxView.setGrid (proc.getRig());
+        appendLog (juce::String ("[spots] ") + (next == SpotKind::rgbw ? "RGBW" : "RGBL (Saber, 6CH RGBL)"));
+    };
+    showSpotKind (proc.getRig().spots);
+    addAndMakeVisible (spotKindButton);
+
     // Per-bar LED-dim row: one 1..10 cell per bar (no label — it speaks for
     // itself sitting under the grid fields). Cells latch their relative dim into
     // the processor (1..10 → 0.1..1.0). refreshBarDimBoxes shows only as many as
@@ -380,6 +396,12 @@ void HitNoteDmxAudioProcessorEditor::showGridFields (Rig r)
 {
     gridColsEdit.setText (juce::String (r.cols), juce::dontSendNotification);
     gridRowsEdit.setText (juce::String (r.rows), juce::dontSendNotification);
+}
+
+void HitNoteDmxAudioProcessorEditor::showSpotKind (SpotKind k)
+{
+    shownSpotKind = k;
+    spotKindButton.setButtonText (k == SpotKind::rgbw ? "RGBW" : "RGBL");
 }
 
 void HitNoteDmxAudioProcessorEditor::applyGridFromFields()
@@ -567,6 +589,8 @@ void HitNoteDmxAudioProcessorEditor::resized()
             gridXLabel.setBounds (gridRow.removeFromLeft (14));
             gridRowsEdit.setBounds (gridRow.removeFromLeft (32));
             gridRow.removeFromLeft (6);
+            spotKindButton.setBounds (gridRow.removeFromRight (52));   // spot-type toggle
+            gridRow.removeFromRight (4);
             setGridButton.setBounds (gridRow);
         }
 
@@ -679,6 +703,8 @@ void HitNoteDmxAudioProcessorEditor::timerCallback()
     // per-bar dim row's cell count + values in step.
     if (proc.getRig().cols != shownBarCols)
         refreshBarDimBoxes();
+    if (proc.getRig().spots != shownSpotKind)
+        showSpotKind (proc.getRig().spots);
 
     // Light up trigger tiles whose notes are currently sounding (MIDI + preview).
     proc.getHeldPitches (heldScratch);
