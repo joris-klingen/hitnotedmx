@@ -22,7 +22,7 @@ namespace hitnotedmx
 // text + spot ellipses) is amortised across long static stretches.
 //
 // Layout:
-//   2 RGBW spots flanking a grid of vertical bars (rig.cols × rig.rows cells,
+//   2 spots (RGBL or RGBW, per rig.spots) flanking a grid of vertical bars (rig.cols × rig.rows cells,
 //   pixel 1 at the bottom matching the rig's bottom-up orientation). The grid
 //   shape comes from setGrid(); default 4 × 18.
 class DmxVisualizer : public juce::Component,

@@ -152,7 +152,9 @@ MidiState held (const std::vector<int>& pitches, std::uint8_t vel)
 // Grid shapes the end-to-end sweep runs at: the default rig plus non-default
 // shapes (wider / narrower / extremes) so the runtime-parametric path — masks,
 // density rank, quarter selectors, addressing — is regression-checked too.
-const std::array<Rig, 4> kGridShapes {{ { kDefaultBars, kDefaultRows },
+// The default shape runs with both spot types (RGBL default + RGBW).
+const std::array<Rig, 5> kGridShapes {{ { kDefaultBars, kDefaultRows },
+                                        { kDefaultBars, kDefaultRows, SpotKind::rgbw },
                                         { 6, 24 }, { 2, 32 }, { kMaxBars, 1 } }};
 
 void checkComposite (const char* label, const std::vector<int>& pitches)
@@ -174,6 +176,10 @@ void checkComposite (const char* label, const std::vector<int>& pitches)
                 SelectionMask  sel;
                 DmxValues      out;
                 const MidiState state = held (pitches, vel);
+                // Ride the spot white-balance corners along with the sweep
+                // (temp with density, tint with velocity → all 9 combos).
+                grid.spotTemp = density * 2.0f - 1.0f;
+                grid.spotTint = vel == 1 ? -1.0f : (vel == 64 ? 0.0f : 1.0f);
 
                 for (double t : ts)
                 {

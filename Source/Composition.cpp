@@ -63,9 +63,66 @@ namespace
 {
 constexpr int kVelocityThreshold = 64;
 
-// Warm-white tint for the singer spots.
-constexpr float kSpotWarmR = 0.4f;
-constexpr float kSpotWarmG = 0.15f;
+// ---- spot colour, per fixture type (Rig::spots, the editor's toggle) ------
+// RGBW spot: the 'WW' triggers light the white emitter, tinted with R + a
+// touch of G → incandescent warm white.
+constexpr float kSpotWWarmR = 0.4f;
+constexpr float kSpotWWarmG = 0.15f;
+
+// RGBL spot (Saber Spot RGBL): no white emitter, so 'WW' is MIXED — red +
+// lime carry the light, a little green/blue pulls it off amber. First-guess
+// values — TUNE BY EYE on the fixture (on a face): more blue = cooler, more
+// red / less lime = warmer.
+constexpr float kSpotLWarmR = 1.0f;
+constexpr float kSpotLWarmG = 0.10f;
+constexpr float kSpotLWarmB = 0.12f;
+constexpr float kSpotLWarmL = 0.85f;
+
+// The spots' warm white for the 'WW' triggers, shaped by the two white-balance
+// controls (GridState::spotTemp / spotTint, −1..+1). At 0 / 0 it is exactly
+// the default mix above; the swings are deliberately wide so any fixture
+// batch / lens / venue can be dialled in by eye. `x` = fourth emitter.
+struct SpotWhite { float r, g, b, x; };
+inline SpotWhite spotWarmWhite (SpotKind kind, float temp, float tint) noexcept
+{
+    const float cool = std::clamp (temp, 0.0f, 1.0f),  warm = std::clamp (-temp, 0.0f, 1.0f);
+    const float grn  = std::clamp (tint, 0.0f, 1.0f),  mag  = std::clamp (-tint, 0.0f, 1.0f);
+    SpotWhite w {};
+    if (kind == SpotKind::rgbw)
+    {
+        // W carries the light; temp trades the red tint for blue, tint adds
+        // green or a red+blue (magenta) touch.
+        w.x = 1.0f;
+        w.r = kSpotWWarmR * (1.0f - cool) + 0.40f * warm + 0.10f * mag;
+        w.g = kSpotWWarmG * (1.0f - cool) + 0.10f * warm + 0.20f * grn;
+        w.b = 0.30f * cool + 0.15f * mag;
+    }
+    else
+    {
+        // Red + lime carry the light. Cooler = more blue, less red; warmer =
+        // no blue/green, less lime (toward amber). Green tint = more lime +
+        // green; magenta = less lime/green, a touch more blue.
+        w.r = kSpotLWarmR - 0.35f * cool;
+        w.g = kSpotLWarmG * (1.0f - warm) * (1.0f - mag) + 0.15f * cool + 0.20f * grn;
+        w.b = kSpotLWarmB * (1.0f - warm) + 0.30f * cool + 0.06f * mag;
+        w.x = kSpotLWarmL - 0.25f * warm + 0.15f * grn - 0.35f * mag;
+    }
+    w.r = std::clamp (w.r, 0.0f, 1.0f);
+    w.g = std::clamp (w.g, 0.0f, 1.0f);
+    w.b = std::clamp (w.b, 0.0f, 1.0f);
+    w.x = std::clamp (w.x, 0.0f, 1.0f);
+    return w;
+}
+
+// Lime for a COLOURED RGBL spot: lime sits between green and yellow, so feed
+// it from the red/green the colour shares — pastels, ambers and whites gain
+// output and a kinder skin tone; saturated R / G / B / magenta / cyan get
+// none and stay pure. The mix factor is the tuning knob (0 = plain RGB).
+constexpr float kSpotLimeMix = 0.5f;
+constexpr float spotLime (float r, float g) noexcept
+{
+    return (r < g ? r : g) * kSpotLimeMix;
+}
 
 // ---- total blackout (pitch 0, C-2) --------------------------------------
 // Lowest note in the vocabulary: a hard kill of the whole rig. The rest of
@@ -364,12 +421,14 @@ void applyBumpOverlay (DmxValues& out, const GridState& grid, const BumpState& b
         sel->clear();
 
     // Single bump: white when no primary colour is held, else the primary
-    // hue. (W channel on the spots flashes only on a white bump.)
+    // hue. The spots' fourth emitter: RGBW flashes W only on a white bump;
+    // RGBL's lime follows the flash colour via spotLime.
     const bool  colWhite = primaryC.pitch < 0;
     const float colR = colWhite ? 1.0f : primaryC.r;
     const float colG = colWhite ? 1.0f : primaryC.g;
     const float colB = colWhite ? 1.0f : primaryC.b;
-    const float colW = colWhite ? 1.0f : 0.0f;
+    const float col4 = grid.rig.spots == SpotKind::rgbw ? (colWhite ? 1.0f : 0.0f)
+                                                        : spotLime (colR, colG);
 
     auto flash = [=] (float v, float tgt) -> float
     {
@@ -391,12 +450,12 @@ void applyBumpOverlay (DmxValues& out, const GridState& grid, const BumpState& b
     }
     for (int s = 0; s < kNumSpots; ++s)
     {
-        const auto& spot = kSpots[s];
-        out.set (spot.dimmer(), flash (out.get (spot.dimmer()), spotMasterDim));
-        out.set (spot.red(),    flash (out.get (spot.red()),    colR));
-        out.set (spot.green(),  flash (out.get (spot.green()),  colG));
-        out.set (spot.blue(),   flash (out.get (spot.blue()),   colB));
-        out.set (spot.white(),  flash (out.get (spot.white()),  colW));
+        const auto ch = kSpots[s].channels (grid.rig.spots);
+        out.set (ch.dimmer, flash (out.get (ch.dimmer), spotMasterDim));
+        out.set (ch.red,    flash (out.get (ch.red),    colR));
+        out.set (ch.green,  flash (out.get (ch.green),  colG));
+        out.set (ch.blue,   flash (out.get (ch.blue),   colB));
+        out.set (ch.fourth, flash (out.get (ch.fourth), col4));
     }
 }
 
@@ -956,15 +1015,17 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
     // ---- 8. Compose spots ------------------------------------------------
     for (int s = 0; s < kNumSpots; ++s)
     {
-        const auto& spot = kSpots[s];
-        float dim = 0.0f, r = 0.0f, g = 0.0f, b = 0.0f, w = 0.0f;
+        const bool rgbw = grid.rig.spots == SpotKind::rgbw;
+        const auto ch   = kSpots[s].channels (grid.rig.spots);
+        // `x` is the fourth emitter: white (RGBW) or lime (RGBL).
+        float dim = 0.0f, r = 0.0f, g = 0.0f, b = 0.0f, x = 0.0f;
         if (spotWW[s])
         {
+            // RGBW: W emitter + warm tint. RGBL: no white emitter — a mix.
+            // Both shaped by the white-balance controls.
+            const auto w = spotWarmWhite (grid.rig.spots, grid.spotTemp, grid.spotTint);
             dim = 1.0f;
-            w   = 1.0f;
-            // Tint W with R + a touch of G → incandescent warm white
-            r = std::max (r, kSpotWarmR);
-            g = std::max (g, kSpotWarmG);
+            r = w.r;  g = w.g;  b = w.b;  x = w.x;
         }
         if (spotSec[s])
         {
@@ -972,13 +1033,15 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
             r = std::max (r, secR);
             g = std::max (g, secG);
             b = std::max (b, secB);
+            if (! rgbw)
+                x = std::max (x, spotLime (secR, secG));
         }
-        out.set (spot.dimmer(), dim * spotMasterDim);
-        out.set (spot.red(),    r);
-        out.set (spot.green(),  g);
-        out.set (spot.blue(),   b);
-        out.set (spot.white(),  w);
-        out.set (spot.strobe(), 0.0f);
+        out.set (ch.red,    r);
+        out.set (ch.green,  g);
+        out.set (ch.blue,   b);
+        out.set (ch.fourth, x);
+        out.set (ch.dimmer, dim * spotMasterDim);
+        out.set (ch.spare,  0.0f);
     }
 
     // ---- 9. Master controls (crossfade + flash bump + to/from-black) ------

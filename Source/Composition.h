@@ -67,6 +67,13 @@ struct GridState
 {
     Rig rig;
 
+    // Spot warm-white balance (the editor's TEMP / TINT sliders), each -1..+1
+    // with 0 = the built-in default mix. temp: − warmer / + cooler; tint:
+    // − magenta / + green. Only shapes the 'WW' spot triggers. Refreshed by
+    // the audio thread each block; rebuild() leaves them alone.
+    float spotTemp = 0.0f;
+    float spotTint = 0.0f;
+
     // Pixel statics (pitches 12..23): bit n = pixel (n+1), 1 = bottom.
     // Zones 1-9 are contiguous bottom-up row spans (pixel p → zone
     // ((p-1)*9)/rows, reproducing the original 2-pixel pairs at rows = 18),
@@ -166,9 +173,9 @@ struct BumpState
 //      Multicolor bank, pitches 60..83) is held, its RGB replaces the
 //      palette route entirely. Apply color × brightness to the three DMX
 //      channels of that pixel.
-//   5. Spots: warm-white tint if WW pitches held, plus secondary
-//      colour overlay if their sec pitches held. RGBW channels set
-//      directly (dimmer master).
+//   5. Spots: mixed warm white if WW pitches held, plus secondary
+//      colour overlay if their sec pitches held. RGBL channels set
+//      directly (lime derived from the colour; dimmer master).
 //
 // `outValues` is cleared at entry; bars and spots are fully written
 // for every audio block (DMX channels never inherit stale state from

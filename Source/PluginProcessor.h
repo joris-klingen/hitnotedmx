@@ -102,6 +102,13 @@ public:
     // persisted with the session as properties on the parameter tree.
     static constexpr const char* kGridColsProp = "gridCols";
     static constexpr const char* kGridRowsProp = "gridRows";
+    // Spot fixture type on the two spot slots (0 = RGBL Saber, 1 = RGBW).
+    // Same deal: structural, persisted, not automatable.
+    static constexpr const char* kSpotKindProp = "spotKind";
+    // Spot warm-white balance (−1..+1 each, 0 = default mix). Persisted, not
+    // automatable — a per-venue calibration, not a show control.
+    static constexpr const char* kSpotTempProp = "spotTemp";
+    static constexpr const char* kSpotTintProp = "spotTint";
     // Per-bar dims persist as one space-separated string of kMaxBars values.
     static constexpr const char* kBarDimsProp  = "barDims";
 
@@ -110,6 +117,18 @@ public:
     // applies it at the top of the next processBlock. Returns the shape
     // actually stored (after clamping).
     Rig setGridShape (int cols, int rows);
+
+    // Pick the spot fixture type (message thread). Rides the same atomic as
+    // the grid shape, so the audio thread applies it at the next block (with
+    // the same one-time universe clear — the channel order changes).
+    void setSpotKind (SpotKind kind);
+
+    // Warm-white balance of the 'WW' spot triggers (message thread writes,
+    // audio thread reads each block). temp: − warmer / + cooler; tint:
+    // − magenta / + green; both −1..+1, 0 = the built-in mix.
+    void  setSpotWhite (float temp, float tint);
+    float getSpotTemp() const noexcept { return spotTemp.load (std::memory_order_relaxed); }
+    float getSpotTint() const noexcept { return spotTint.load (std::memory_order_relaxed); }
 
     // Per-bar relative LED brightness (0..1, default 1 = full), rescaled on top
     // of the master LED dim in computeDmx. NOT automatable; persisted with the
@@ -123,7 +142,7 @@ public:
     Rig getRig() const noexcept
     {
         const auto req = gridRequest.load (std::memory_order_relaxed);
-        return { static_cast<int> (req >> 8), static_cast<int> (req & 0xffu) };
+        return { static_cast<int> ((req >> 8) & 0xffu), static_cast<int> (req & 0xffu), unpackSpots (req) };
     }
 
 private:
@@ -156,14 +175,21 @@ private:
     ColorFadeState colorFade;  // persists colour-fade state across blocks
     BumpState  bumpState;      // persists bump release-tail envelopes across blocks
 
-    // Grid shape handoff (GUI/state thread → audio thread). Cols and rows are
-    // packed into ONE atomic ((cols << 8) | rows) so the pair can never tear;
+    // Grid shape handoff (GUI/state thread → audio thread). Cols, rows and the
+    // spot type are packed into ONE atomic ((spots << 16) | (cols << 8) | rows)
+    // so they can never tear;
     // `appliedGrid` is audio-thread bookkeeping (0 = force the first apply,
     // which builds the derived tables in `grid`). All grid-dependent buffers
     // are max-size, so applying a shape never allocates.
-    static constexpr std::uint32_t packGrid (int cols, int rows) noexcept
+    static constexpr std::uint32_t packGrid (int cols, int rows,
+                                             SpotKind spots = SpotKind::rgbl) noexcept
     {
-        return (static_cast<std::uint32_t> (cols) << 8) | static_cast<std::uint32_t> (rows);
+        return (static_cast<std::uint32_t> (spots) << 16)
+             | (static_cast<std::uint32_t> (cols) << 8) | static_cast<std::uint32_t> (rows);
+    }
+    static constexpr SpotKind unpackSpots (std::uint32_t req) noexcept
+    {
+        return ((req >> 16) & 1u) != 0 ? SpotKind::rgbw : SpotKind::rgbl;
     }
     std::atomic<std::uint32_t> gridRequest { packGrid (kDefaultBars, kDefaultRows) };
     std::uint32_t              appliedGrid { 0 };
@@ -172,6 +198,7 @@ private:
     // Per-bar relative LED dims (0..1). Written on the message thread, snapshot
     // into a plain buffer each processBlock and passed to computeDmx.
     std::array<std::atomic<float>, kMaxBars> barDim;
+    std::atomic<float> spotTemp { 0.0f }, spotTint { 0.0f };
     // Persist the current dims into the state tree (space-separated string).
     void storeBarDimsProp();
 

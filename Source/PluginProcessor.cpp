@@ -123,8 +123,9 @@ void HitNoteDmxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     const auto gridReq = gridRequest.load (std::memory_order_relaxed);
     if (gridReq != appliedGrid)
     {
-        grid.rig.cols = static_cast<int> (gridReq >> 8);
-        grid.rig.rows = static_cast<int> (gridReq & 0xffu);
+        grid.rig.cols  = static_cast<int> ((gridReq >> 8) & 0xffu);
+        grid.rig.rows  = static_cast<int> (gridReq & 0xffu);
+        grid.rig.spots = unpackSpots (gridReq);
         grid.rebuild();
         bumpState.reset();
         dmxValues.clear();
@@ -234,6 +235,8 @@ void HitNoteDmxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     float barDimBuf[kMaxBars];
     for (int i = 0; i < kMaxBars; ++i)
         barDimBuf[i] = barDim[static_cast<size_t> (i)].load (std::memory_order_relaxed);
+    grid.spotTemp = spotTemp.load (std::memory_order_relaxed);
+    grid.spotTint = spotTint.load (std::memory_order_relaxed);
     computeDmx (midiState, blockStartBeat, dmxValues, grid, ledDim, spotDim, &colorFade, dtSeconds, density, &selection, &bumpState, barDimBuf);
 
     // Strobe is a global shutter applied in the DMX driver's send loop (so
@@ -305,8 +308,19 @@ void HitNoteDmxAudioProcessor::setStateInformation (const void* data, int sizeIn
                 static_cast<int> (parameters.state.getProperty (kGridColsProp, kDefaultBars)));
             const int rows = juce::jlimit (1, kMaxRows,
                 static_cast<int> (parameters.state.getProperty (kGridRowsProp, kDefaultRows)));
+            // Spot type: old sessions lack it → the RGBL default.
+            const auto spots = static_cast<int> (parameters.state.getProperty (kSpotKindProp, 0)) == 1
+                                   ? SpotKind::rgbw : SpotKind::rgbl;
             if (cols * rows <= kMaxGridCells)
-                gridRequest.store (packGrid (cols, rows));
+                gridRequest.store (packGrid (cols, rows, spots));
+            else   // bad shape in the state: keep the current one, still take the spot type
+                gridRequest.store (packGrid (getRig().cols, getRig().rows, spots));
+
+            // Spot white balance: old sessions lack it → 0 / 0 (default mix).
+            spotTemp.store (juce::jlimit (-1.0f, 1.0f,
+                static_cast<float> (parameters.state.getProperty (kSpotTempProp, 0.0))));
+            spotTint.store (juce::jlimit (-1.0f, 1.0f,
+                static_cast<float> (parameters.state.getProperty (kSpotTintProp, 0.0))));
 
             // Per-bar dims ride the state as a space-separated string; old
             // sessions lack it → every bar stays at full.
@@ -331,11 +345,29 @@ Rig HitNoteDmxAudioProcessor::setGridShape (int cols, int rows)
     while (cols * rows > kMaxGridCells && rows > 1)
         --rows;
 
-    gridRequest.store (packGrid (cols, rows));
+    const SpotKind spots = getRig().spots;   // a reshape keeps the spot type
+    gridRequest.store (packGrid (cols, rows, spots));
     parameters.state.setProperty (kGridColsProp, cols, nullptr);
     parameters.state.setProperty (kGridRowsProp, rows, nullptr);
     resetBarDims();   // a fresh grid starts every bar at full brightness
-    return { cols, rows };
+    return { cols, rows, spots };
+}
+
+void HitNoteDmxAudioProcessor::setSpotKind (SpotKind kind)
+{
+    const Rig r = getRig();
+    gridRequest.store (packGrid (r.cols, r.rows, kind));
+    parameters.state.setProperty (kSpotKindProp, static_cast<int> (kind), nullptr);
+}
+
+void HitNoteDmxAudioProcessor::setSpotWhite (float temp, float tint)
+{
+    temp = juce::jlimit (-1.0f, 1.0f, temp);
+    tint = juce::jlimit (-1.0f, 1.0f, tint);
+    spotTemp.store (temp);
+    spotTint.store (tint);
+    parameters.state.setProperty (kSpotTempProp, temp, nullptr);
+    parameters.state.setProperty (kSpotTintProp, tint, nullptr);
 }
 
 void HitNoteDmxAudioProcessor::setBarDim (int barIdx, float v) noexcept
