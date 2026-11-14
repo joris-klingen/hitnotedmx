@@ -78,6 +78,42 @@ constexpr float kSpotLWarmG = 0.10f;
 constexpr float kSpotLWarmB = 0.12f;
 constexpr float kSpotLWarmL = 0.85f;
 
+// The spots' warm white for the 'WW' triggers, shaped by the two white-balance
+// controls (GridState::spotTemp / spotTint, −1..+1). At 0 / 0 it is exactly
+// the default mix above; the swings are deliberately wide so any fixture
+// batch / lens / venue can be dialled in by eye. `x` = fourth emitter.
+struct SpotWhite { float r, g, b, x; };
+inline SpotWhite spotWarmWhite (SpotKind kind, float temp, float tint) noexcept
+{
+    const float cool = std::clamp (temp, 0.0f, 1.0f),  warm = std::clamp (-temp, 0.0f, 1.0f);
+    const float grn  = std::clamp (tint, 0.0f, 1.0f),  mag  = std::clamp (-tint, 0.0f, 1.0f);
+    SpotWhite w {};
+    if (kind == SpotKind::rgbw)
+    {
+        // W carries the light; temp trades the red tint for blue, tint adds
+        // green or a red+blue (magenta) touch.
+        w.x = 1.0f;
+        w.r = kSpotWWarmR * (1.0f - cool) + 0.40f * warm + 0.10f * mag;
+        w.g = kSpotWWarmG * (1.0f - cool) + 0.10f * warm + 0.20f * grn;
+        w.b = 0.30f * cool + 0.15f * mag;
+    }
+    else
+    {
+        // Red + lime carry the light. Cooler = more blue, less red; warmer =
+        // no blue/green, less lime (toward amber). Green tint = more lime +
+        // green; magenta = less lime/green, a touch more blue.
+        w.r = kSpotLWarmR - 0.35f * cool;
+        w.g = kSpotLWarmG * (1.0f - warm) * (1.0f - mag) + 0.15f * cool + 0.20f * grn;
+        w.b = kSpotLWarmB * (1.0f - warm) + 0.30f * cool + 0.06f * mag;
+        w.x = kSpotLWarmL - 0.25f * warm + 0.15f * grn - 0.35f * mag;
+    }
+    w.r = std::clamp (w.r, 0.0f, 1.0f);
+    w.g = std::clamp (w.g, 0.0f, 1.0f);
+    w.b = std::clamp (w.b, 0.0f, 1.0f);
+    w.x = std::clamp (w.x, 0.0f, 1.0f);
+    return w;
+}
+
 // Lime for a COLOURED RGBL spot: lime sits between green and yellow, so feed
 // it from the red/green the colour shares — pastels, ambers and whites gain
 // output and a kinder skin tone; saturated R / G / B / magenta / cyan get
@@ -985,22 +1021,11 @@ void computeDmx (const MidiState& state, double tBeats, DmxValues& out,
         float dim = 0.0f, r = 0.0f, g = 0.0f, b = 0.0f, x = 0.0f;
         if (spotWW[s])
         {
+            // RGBW: W emitter + warm tint. RGBL: no white emitter — a mix.
+            // Both shaped by the white-balance controls.
+            const auto w = spotWarmWhite (grid.rig.spots, grid.spotTemp, grid.spotTint);
             dim = 1.0f;
-            if (rgbw)
-            {
-                // W emitter, tinted with R + a touch of G → warm white.
-                x = 1.0f;
-                r = kSpotWWarmR;
-                g = kSpotWWarmG;
-            }
-            else
-            {
-                // No white emitter on the RGBL spot — mixed warm white.
-                r = kSpotLWarmR;
-                g = kSpotLWarmG;
-                b = kSpotLWarmB;
-                x = kSpotLWarmL;
-            }
+            r = w.r;  g = w.g;  b = w.b;  x = w.x;
         }
         if (spotSec[s])
         {

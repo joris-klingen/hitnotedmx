@@ -96,7 +96,10 @@ colour      =  primary colour, or the secondary colour where a zone asks for it
 - **Black** (C5) is a real colour: a soft *Black* note fades the look out.
 - **Spots** are separate fixtures: *WW* = warm white (the W LED on RGBW
   spots; a red/lime mix on the RGBL Sabers, which have no white LED), *col* =
-  the current **secondary** colour.
+  the current **secondary** colour. The **TEMP** / **TINT** sliders above the
+  grid row white-balance the *WW* look by eye (TEMP: left warmer, right
+  cooler; TINT: left magenta, right green; double-click = back to centre).
+  Saved with the session.
   Typical use: Spot L = the tight pin beam on the singer, Spot R = the
   wide-lens wash over the band.
 

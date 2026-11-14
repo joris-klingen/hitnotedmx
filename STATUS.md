@@ -134,6 +134,19 @@ table in the project README.
 Reverse-chronological, newest first — the single record of shipped work
 (the per-layer table above is the current-state reference).
 
+- **Spot white balance (TEMP / TINT sliders)** — the warm white of the 'WW'
+  spot triggers is now tunable from the editor instead of by rebuilding: a
+  slim row above the grid row with two bipolar sliders (−1..+1, centre = the
+  built-in mix, double-click re-centres). TEMP: warmer ↔ cooler; TINT:
+  magenta ↔ green. `spotWarmWhite()` in `Composition.cpp` maps them per
+  `SpotKind` (RGBL: red/lime/green/blue mix; RGBW: the tint around the W
+  emitter); values reach the audio thread as two atomics copied onto
+  `GridState::spotTemp/spotTint` each block and persist as the `spotTemp` /
+  `spotTint` state properties (not automatable — a per-venue calibration).
+  Only the WW triggers are affected (colour triggers and Bump are not). The
+  MIDI log gave up ~22 px for the row. `recipe-range` sweeps the corners.
+  The curve shapes are untested on hardware.
+
 - **Spot-type toggle (RGBL / RGBW)** — the spot fixture type is now a runtime
   setting instead of a compile-time swap: a small button at the right end of
   the editor's grid row shows the active type and flips it. `SpotKind` lives on

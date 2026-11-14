@@ -235,6 +235,8 @@ void HitNoteDmxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     float barDimBuf[kMaxBars];
     for (int i = 0; i < kMaxBars; ++i)
         barDimBuf[i] = barDim[static_cast<size_t> (i)].load (std::memory_order_relaxed);
+    grid.spotTemp = spotTemp.load (std::memory_order_relaxed);
+    grid.spotTint = spotTint.load (std::memory_order_relaxed);
     computeDmx (midiState, blockStartBeat, dmxValues, grid, ledDim, spotDim, &colorFade, dtSeconds, density, &selection, &bumpState, barDimBuf);
 
     // Strobe is a global shutter applied in the DMX driver's send loop (so
@@ -314,6 +316,12 @@ void HitNoteDmxAudioProcessor::setStateInformation (const void* data, int sizeIn
             else   // bad shape in the state: keep the current one, still take the spot type
                 gridRequest.store (packGrid (getRig().cols, getRig().rows, spots));
 
+            // Spot white balance: old sessions lack it → 0 / 0 (default mix).
+            spotTemp.store (juce::jlimit (-1.0f, 1.0f,
+                static_cast<float> (parameters.state.getProperty (kSpotTempProp, 0.0))));
+            spotTint.store (juce::jlimit (-1.0f, 1.0f,
+                static_cast<float> (parameters.state.getProperty (kSpotTintProp, 0.0))));
+
             // Per-bar dims ride the state as a space-separated string; old
             // sessions lack it → every bar stays at full.
             for (auto& d : barDim)
@@ -350,6 +358,16 @@ void HitNoteDmxAudioProcessor::setSpotKind (SpotKind kind)
     const Rig r = getRig();
     gridRequest.store (packGrid (r.cols, r.rows, kind));
     parameters.state.setProperty (kSpotKindProp, static_cast<int> (kind), nullptr);
+}
+
+void HitNoteDmxAudioProcessor::setSpotWhite (float temp, float tint)
+{
+    temp = juce::jlimit (-1.0f, 1.0f, temp);
+    tint = juce::jlimit (-1.0f, 1.0f, tint);
+    spotTemp.store (temp);
+    spotTint.store (tint);
+    parameters.state.setProperty (kSpotTempProp, temp, nullptr);
+    parameters.state.setProperty (kSpotTintProp, tint, nullptr);
 }
 
 void HitNoteDmxAudioProcessor::setBarDim (int barIdx, float v) noexcept

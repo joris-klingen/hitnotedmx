@@ -240,6 +240,13 @@ private:
     SpotKind         shownSpotKind { SpotKind::rgbl };
     void showSpotKind (SpotKind k);
 
+    // Spot warm-white balance: one slim row above the grid row — TEMP
+    // (warmer ↔ cooler) and TINT (magenta ↔ green), centre = the default mix,
+    // double-click a slider to re-centre it. Shapes the 'WW' spot triggers.
+    juce::Slider wwTempSlider { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
+    juce::Slider wwTintSlider { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
+    juce::Label  wwTempLabel, wwTintLabel;
+
     // Per-bar LED-dim row, one short row below the grid section: one 1..10 cell
     // per bar (4..8 shown, tracking the grid's column count). Relative dims,
     // rescaled by the master LED dim; "Set grid" resets them all to 10.

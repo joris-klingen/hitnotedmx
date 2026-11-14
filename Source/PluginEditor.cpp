@@ -283,6 +283,35 @@ HitNoteDmxAudioProcessorEditor::HitNoteDmxAudioProcessorEditor (HitNoteDmxAudioP
     showSpotKind (proc.getRig().spots);
     addAndMakeVisible (spotKindButton);
 
+    // Spot warm-white balance sliders (−1..+1, centre = default mix).
+    auto setUpWw = [this] (juce::Slider& s, juce::Label& lab, const juce::String& text,
+                           float value, juce::Colour thumb, const juce::String& tip)
+    {
+        s.setRange (-1.0, 1.0, 0.01);
+        s.setValue (value, juce::dontSendNotification);
+        s.setDoubleClickReturnValue (true, 0.0);
+        s.setColour (juce::Slider::thumbColourId, thumb);
+        s.setColour (juce::Slider::trackColourId, juce::Colour (0xff3a3a3a));   // no "fill" — it's bipolar
+        s.setTooltip (tip);
+        s.onValueChange = [this]
+        {
+            proc.setSpotWhite (static_cast<float> (wwTempSlider.getValue()),
+                               static_cast<float> (wwTintSlider.getValue()));
+        };
+        addAndMakeVisible (s);
+
+        lab.setText (text, juce::dontSendNotification);
+        lab.setJustificationType (juce::Justification::centredLeft);
+        lab.setColour (juce::Label::textColourId, juce::Colour (0xffb0b0b0));
+        lab.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+        lab.setTooltip (tip);
+        addAndMakeVisible (lab);
+    };
+    setUpWw (wwTempSlider, wwTempLabel, "TEMP", proc.getSpotTemp(), juce::Colour (0xfff2a93b),
+             "Spot warm-white temperature: left = warmer, right = cooler. Double-click to reset.");
+    setUpWw (wwTintSlider, wwTintLabel, "TINT", proc.getSpotTint(), juce::Colour (0xff8fd16a),
+             "Spot warm-white tint: left = magenta, right = green. Double-click to reset.");
+
     // Per-bar LED-dim row: one 1..10 cell per bar (no label — it speaks for
     // itself sitting under the grid fields). Cells latch their relative dim into
     // the processor (1..10 → 0.1..1.0). refreshBarDimBoxes shows only as many as
@@ -582,9 +611,12 @@ void HitNoteDmxAudioProcessorEditor::resized()
         }
 
         // Grid-shape row above the bar-dim row; the MIDI log above shrinks.
+        juce::Rectangle<int> wwRow;
         {
             leftContent.removeFromBottom (5);
             auto gridRow = leftContent.removeFromBottom (22);
+            leftContent.removeFromBottom (4);
+            wwRow = leftContent.removeFromBottom (18);
             gridColsEdit.setBounds (gridRow.removeFromLeft (32));
             gridXLabel.setBounds (gridRow.removeFromLeft (14));
             gridRowsEdit.setBounds (gridRow.removeFromLeft (32));
@@ -592,6 +624,17 @@ void HitNoteDmxAudioProcessorEditor::resized()
             spotKindButton.setBounds (gridRow.removeFromRight (52));   // spot-type toggle
             gridRow.removeFromRight (4);
             setGridButton.setBounds (gridRow);
+        }
+
+        // Spot white-balance row (TEMP | TINT) just above the grid row.
+        {
+            auto half = wwRow.removeFromLeft (wwRow.getWidth() / 2);
+            half.removeFromRight (4);
+            wwTempLabel.setBounds (half.removeFromLeft (32));
+            wwTempSlider.setBounds (half);
+            wwRow.removeFromLeft (4);
+            wwTintLabel.setBounds (wwRow.removeFromLeft (30));
+            wwTintSlider.setBounds (wwRow);
         }
 
         leftContent.removeFromBottom (6);
@@ -705,6 +748,12 @@ void HitNoteDmxAudioProcessorEditor::timerCallback()
         refreshBarDimBoxes();
     if (proc.getRig().spots != shownSpotKind)
         showSpotKind (proc.getRig().spots);
+    // …and the white balance (don't fight a drag in progress).
+    if (! wwTempSlider.isMouseButtonDown() && ! wwTintSlider.isMouseButtonDown())
+    {
+        wwTempSlider.setValue (proc.getSpotTemp(), juce::dontSendNotification);
+        wwTintSlider.setValue (proc.getSpotTint(), juce::dontSendNotification);
+    }
 
     // Light up trigger tiles whose notes are currently sounding (MIDI + preview).
     proc.getHeldPitches (heldScratch);

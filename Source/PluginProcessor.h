@@ -105,6 +105,10 @@ public:
     // Spot fixture type on the two spot slots (0 = RGBL Saber, 1 = RGBW).
     // Same deal: structural, persisted, not automatable.
     static constexpr const char* kSpotKindProp = "spotKind";
+    // Spot warm-white balance (−1..+1 each, 0 = default mix). Persisted, not
+    // automatable — a per-venue calibration, not a show control.
+    static constexpr const char* kSpotTempProp = "spotTemp";
+    static constexpr const char* kSpotTintProp = "spotTint";
     // Per-bar dims persist as one space-separated string of kMaxBars values.
     static constexpr const char* kBarDimsProp  = "barDims";
 
@@ -118,6 +122,13 @@ public:
     // the grid shape, so the audio thread applies it at the next block (with
     // the same one-time universe clear — the channel order changes).
     void setSpotKind (SpotKind kind);
+
+    // Warm-white balance of the 'WW' spot triggers (message thread writes,
+    // audio thread reads each block). temp: − warmer / + cooler; tint:
+    // − magenta / + green; both −1..+1, 0 = the built-in mix.
+    void  setSpotWhite (float temp, float tint);
+    float getSpotTemp() const noexcept { return spotTemp.load (std::memory_order_relaxed); }
+    float getSpotTint() const noexcept { return spotTint.load (std::memory_order_relaxed); }
 
     // Per-bar relative LED brightness (0..1, default 1 = full), rescaled on top
     // of the master LED dim in computeDmx. NOT automatable; persisted with the
@@ -187,6 +198,7 @@ private:
     // Per-bar relative LED dims (0..1). Written on the message thread, snapshot
     // into a plain buffer each processBlock and passed to computeDmx.
     std::array<std::atomic<float>, kMaxBars> barDim;
+    std::atomic<float> spotTemp { 0.0f }, spotTint { 0.0f };
     // Persist the current dims into the state tree (space-separated string).
     void storeBarDimsProp();
 

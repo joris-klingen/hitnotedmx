@@ -176,6 +176,10 @@ void checkComposite (const char* label, const std::vector<int>& pitches)
                 SelectionMask  sel;
                 DmxValues      out;
                 const MidiState state = held (pitches, vel);
+                // Ride the spot white-balance corners along with the sweep
+                // (temp with density, tint with velocity → all 9 combos).
+                grid.spotTemp = density * 2.0f - 1.0f;
+                grid.spotTint = vel == 1 ? -1.0f : (vel == 64 ? 0.0f : 1.0f);
 
                 for (double t : ts)
                 {
